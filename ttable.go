@@ -1,4 +1,4 @@
-// This file provides various utility functions needed by find-qubo.
+// This file provides functions for manipulating truth tables.
 
 package main
 
@@ -13,10 +13,10 @@ import (
 // either valid or invalid.
 type TruthTable []bool
 
-// parseRow parses a row of Booleans, specified in a flexible manner, into a
-// binary number.  It returns the number and the total number of bits on the
-// line.  The function aborts on error.
-func parseRow(s string) (uint, int) {
+// parseRow parses a row of Booleans, specified in a flexible manner, into one
+// or more binary numbers.  It returns the numbers and the total number of bits
+// on the line.  The function aborts on error.
+func parseRow(s string) ([]uint, int) {
 	// Discard comments ("#" to the end of the line).
 	cIdx := strings.Index(s, "#")
 	if cIdx != -1 {
@@ -27,22 +27,33 @@ func parseRow(s string) (uint, int) {
 	fields := strings.Fields(s)
 	n := len(fields)
 	if n == 0 {
-		return 0, 0
+		return nil, 0
 	}
 
 	// Parse each field in turn.
-	var v uint
+	vs := make([]uint, 1, 128)
 	for _, f := range fields {
-		v <<= 1
+		for i := range vs {
+			vs[i] <<= 1
+		}
 		switch strings.ToUpper(f) {
 		case "0", "-1", "F", "FALSE":
+			// False
 		case "1", "T", "TRUE":
-			v |= 1
+			// True
+			for i := range vs {
+				vs[i] |= 1
+			}
+		case "*", "-", "?":
+			// Don't care
+			for i := range vs {
+				vs = append(vs, vs[i]|1)
+			}
 		default:
 			notify.Fatalf("Failed to parse %q as a Boolean value", f)
 		}
 	}
-	return v, n
+	return vs, n
 }
 
 // ReadTruthTable reads a truth table from a file.
@@ -70,7 +81,7 @@ func ReadTruthTable(p *Parameters) TruthTable {
 	for scanner.Scan() {
 		row++
 		ln := scanner.Text()
-		v, nc := parseRow(ln)
+		vs, nc := parseRow(ln)
 		switch {
 		case nc == 0:
 			// Blank line: ignore.
@@ -80,13 +91,17 @@ func ReadTruthTable(p *Parameters) TruthTable {
 			// value.
 			prevNC = nc
 			tt = make(TruthTable, 1<<nc)
-			tt[v] = true
+			for _, v := range vs {
+				tt[v] = true
+			}
 		case nc != prevNC:
 			// Change in column count: Abort.
 			notify.Fatalf("Column count changed from %d to %d in line %d", prevNC, nc, row)
 		default:
 			// Second or subsequent row: Store the value.
-			tt[v] = true
+			for _, v := range vs {
+				tt[v] = true
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
