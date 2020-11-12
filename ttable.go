@@ -56,8 +56,9 @@ func parseRow(s string) ([]uint, int) {
 	return vs, n
 }
 
-// ReadTruthTable reads a truth table from a file.
-func ReadTruthTable(p *Parameters) TruthTable {
+// ReadTruthTable reads a truth table from a file.  It returns both the truth
+// table and a column count.  This function aborts on error.
+func ReadTruthTable(p *Parameters) (TruthTable, int) {
 	// Open the input file.
 	var r io.Reader
 	if p.TTName == "" {
@@ -107,5 +108,8 @@ func ReadTruthTable(p *Parameters) TruthTable {
 	if err := scanner.Err(); err != nil {
 		notify.Fatal(err)
 	}
-	return tt
+	if prevNC == 0 {
+		notify.Fatal("Truth table is empty")
+	}
+	return tt, prevNC
 }
