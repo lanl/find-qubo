@@ -6,16 +6,15 @@ package main
 import (
 	"math"
 	"math/rand"
+	"time"
 
 	"github.com/MaxHalford/eaopt"
 	"gonum.org/v1/gonum/mat"
 )
 
-// A QUBO represents a QUBO matrix whose values we're solving for.
-type QUBO struct {
-	Params *Parameters // Pointer to global program parameters
-	Coeffs []float64   // List of linear followed by quadratic coefficients
-}
+// GoodEnoughBadness is a badness level we consider good enough to terminate
+// optimization.
+const GoodEnoughBadness = 1e-10
 
 // AllPossibleColumns returns a matrix containing all possible columns
 // for a given number of rows that contain only 0s and 1s.
@@ -30,6 +29,31 @@ func AllPossibleColumns(nr int) *mat.Dense {
 		}
 	}
 	return all
+}
+
+// A QUBO represents a QUBO matrix whose values we're solving for.
+type QUBO struct {
+	Params *Parameters // Pointer to global program parameters
+	Coeffs []float64   // List of linear followed by quadratic coefficients
+}
+
+// NewRandomQUBO returns a QUBO with random coefficients.
+func NewRandomQUBO(p *Parameters, rng *rand.Rand) QUBO {
+	nCfs := p.NCols * (p.NCols + 1) / 2
+	cfs := make([]float64, nCfs)
+	for c := range cfs {
+		if c < p.NCols {
+			// Linear coefficient
+			cfs[c] = rng.Float64()*(p.MaxL-p.MinL) + p.MinL
+		} else {
+			// Quadratic coefficient
+			cfs[c] = rng.Float64()*(p.MaxQ-p.MinQ) + p.MinQ
+		}
+	}
+	return QUBO{
+		Params: p,
+		Coeffs: cfs,
+	}
 }
 
 // Evaluate computes the badness of a set of coefficients.
@@ -103,4 +127,55 @@ func (q QUBO) Clone() eaopt.Genome {
 		Params: q.Params,
 		Coeffs: cfs,
 	}
+}
+
+// OptimizeCoeffs tries to find the coefficients that best represent the given
+// truth table and the corresponding badness.  It aborts on error.
+func OptimizeCoeffs(p *Parameters) (QUBO, float64) {
+	// Create a genetic-algorithm object.
+	cfg := eaopt.NewDefaultGAConfig()
+	cfg.NGenerations = 1000000
+	cfg.Model = eaopt.ModGenerational{
+		Selector:  eaopt.SelElitism{},
+		MutRate:   0.75,
+		CrossRate: 0.75,
+	}
+	prevBest := math.MaxFloat64 // Least badness seen so far
+	startTime := time.Now() // Current time
+	prevReport := startTime    // Last time we reported our status
+	cfg.Callback = func(ga *eaopt.GA) {
+		hof := ga.HallOfFame[0]
+		bad := hof.Fitness
+		if bad < prevBest {
+			// Report when we have a new least badness.
+			status.Printf("Least badness = %.5g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
+			status.Printf("Best coefficients = %v", hof.Genome.(QUBO).Coeffs)
+			prevBest = bad
+			prevReport = time.Now()
+			return
+		}
+		if time.Since(prevReport) > 5*time.Second {
+			status.Printf("Working on generation %d at time %.1fs", ga.Generations, time.Since(startTime).Seconds())
+			prevReport = time.Now()
+		}
+	}
+	cfg.EarlyStop = func(ga *eaopt.GA) bool {
+		return ga.HallOfFame[0].Fitness <= GoodEnoughBadness
+	}
+	ga, err := cfg.NewGA()
+	if err != nil {
+		notify.Fatal(err)
+	}
+
+	// Run the genetic algorithm.
+	err = ga.Minimize(func(rng *rand.Rand) eaopt.Genome {
+		return NewRandomQUBO(p, rng)
+	})
+	if err != nil {
+		notify.Fatal(err)
+	}
+
+	// Return the best coefficients we found.
+	hof := ga.HallOfFame[0]
+	return hof.Genome.(QUBO), hof.Fitness
 }
