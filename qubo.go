@@ -23,7 +23,7 @@ func AllPossibleColumns(nr int) *mat.Dense {
 	for r := 0; r < nr; r++ {
 		for c := 0; c < nc; c++ {
 			if c&(1<<r) != 0 {
-				all.Set(r, c, 1.0)
+				all.Set(nr-r-1, c, 1.0)
 			}
 		}
 	}
