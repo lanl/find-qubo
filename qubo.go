@@ -5,7 +5,9 @@ package main
 
 import (
 	"math"
+	"math/rand"
 
+	"github.com/MaxHalford/eaopt"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -72,4 +74,33 @@ func (q QUBO) Evaluate() (float64, error) {
 		bad += math.Pow(v-minVal, 2.0)
 	}
 	return bad, nil
+}
+
+// Mutate mutates a coefficient at random.
+func (q QUBO) Mutate(rng *rand.Rand) {
+	p := q.Params
+	c := rng.Intn(len(q.Coeffs))
+	if c < p.NCols {
+		// Linear coefficient
+		q.Coeffs[c] = rng.Float64()*(p.MaxL-p.MinL) + p.MinL
+	} else {
+		// Quadratic coefficient
+		q.Coeffs[c] = rng.Float64()*(p.MaxQ-p.MinQ) + p.MinQ
+	}
+}
+
+// Crossover randomly blends the coefficients of two QUBOs.
+func (q QUBO) Crossover(g eaopt.Genome, rng *rand.Rand) {
+	q2 := g.(QUBO)
+	eaopt.CrossGNXFloat64(q.Coeffs, q2.Coeffs, 2, rng)
+}
+
+// Clone returns a copy of a QUBO.
+func (q QUBO) Clone() eaopt.Genome {
+	cfs := make([]float64, len(q.Coeffs))
+	copy(cfs, q.Coeffs)
+	return QUBO{
+		Params: q.Params,
+		Coeffs: cfs,
+	}
 }
