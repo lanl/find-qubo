@@ -32,6 +32,6 @@ func main() {
 
 	// Try to find coefficients that represent the truth table.
 	qubo, bad := OptimizeCoeffs(&p)
-	status.Printf("Best coefficients = %v", qubo.Coeffs)
-	status.Printf("Badness = %v", bad)
+	status.Printf("Final coefficients = %v", qubo.Coeffs)
+	status.Printf("Final badness = %v", bad)
 }

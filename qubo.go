@@ -100,8 +100,8 @@ func (q QUBO) Evaluate() (float64, error) {
 	return bad, nil
 }
 
-// Mutate mutates a coefficient at random.
-func (q QUBO) Mutate(rng *rand.Rand) {
+// mutateRandomize mutates a single coefficient at random.
+func (q QUBO) mutateRandomize(rng *rand.Rand) {
 	p := q.Params
 	c := rng.Intn(len(q.Coeffs))
 	if c < p.NCols {
@@ -110,6 +110,56 @@ func (q QUBO) Mutate(rng *rand.Rand) {
 	} else {
 		// Quadratic coefficient
 		q.Coeffs[c] = rng.Float64()*(p.MaxQ-p.MinQ) + p.MinQ
+	}
+}
+
+// mutateRound rounds all coefficients to the nearest N.
+func (q QUBO) mutateRound(n float64) {
+	for i, c := range q.Coeffs {
+		q.Coeffs[i] = math.Round(c/n) * n
+	}
+}
+
+// mutateCopy copies one coefficient to another.
+func (q QUBO) mutateCopy(rng *rand.Rand) {
+	nc := len(q.Coeffs)
+	c1 := rng.Intn(nc)
+	c2 := (rng.Intn(nc-1) + c1 + 1) % nc                     // Different from c1
+	q.Coeffs[c1] = math.Copysign(q.Coeffs[c2], q.Coeffs[c1]) // Copy only the magnitude.
+}
+
+// mutateNudge slightly modifies a single coefficient.
+func (q QUBO) mutateNudge(rng *rand.Rand) {
+	const nudgeAmt = 1e-4
+	p := q.Params
+	c := rng.Intn(len(q.Coeffs))
+	cf := q.Coeffs[c] + rng.Float64()*nudgeAmt*2 - nudgeAmt
+	if c < p.NCols {
+		// Linear coefficient
+		cf = math.Min(math.Max(cf, p.MinL), p.MaxL)
+	} else {
+		// Quadratic coefficient
+		cf = math.Min(math.Max(cf, p.MinQ), p.MaxQ)
+	}
+	q.Coeffs[c] = cf
+}
+
+// Mutate mutates the QUBO's coefficients.
+func (q QUBO) Mutate(rng *rand.Rand) {
+	r := rng.Intn(100)
+	switch {
+	case r == 0:
+		// Round all coefficients (rare).
+		q.mutateRound(1e-10)
+	case r < 20:
+		// Copy one coefficient to another.
+		q.mutateCopy(rng)
+	case r < 20+30:
+		// Randomize a single coefficient.
+		q.mutateRandomize(rng)
+	default:
+		// Slightly modify a single coefficient.
+		q.mutateNudge(rng)
 	}
 }
 
@@ -141,14 +191,14 @@ func OptimizeCoeffs(p *Parameters) (QUBO, float64) {
 		CrossRate: 0.75,
 	}
 	prevBest := math.MaxFloat64 // Least badness seen so far
-	startTime := time.Now() // Current time
-	prevReport := startTime    // Last time we reported our status
+	startTime := time.Now()     // Current time
+	prevReport := startTime     // Last time we reported our status
 	cfg.Callback = func(ga *eaopt.GA) {
 		hof := ga.HallOfFame[0]
 		bad := hof.Fitness
 		if bad < prevBest {
 			// Report when we have a new least badness.
-			status.Printf("Least badness = %.5g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
+			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
 			status.Printf("Best coefficients = %v", hof.Genome.(QUBO).Coeffs)
 			prevBest = bad
 			prevReport = time.Now()
