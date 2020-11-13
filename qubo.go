@@ -47,14 +47,6 @@ func (q QUBO) Evaluate() (float64, error) {
 		}
 	}
 
-	// Temporary
-	{
-		for r := 0; r < n; r++ {
-			notify.Printf("Q[%d] = [%4.1f %4.1f %4.1f]",
-				r, Q.At(r, 0), Q.At(r, 1), Q.At(r, 2))
-		}
-	}
-
 	// Evaluate the matrix on all 2^n possible inputs.
 	vals := make([]float64, len(p.TT))
 	for r := range p.TT {
@@ -63,7 +55,6 @@ func (q QUBO) Evaluate() (float64, error) {
 		m.Product(col.T(), Q, col)
 		vals[r] = m.At(0, 0)
 	}
-	notify.Printf("Vals = %v", vals) // Temporary
 
 	// Find the minimum output across all inputs.
 	minVal := math.MaxFloat64

@@ -25,13 +25,4 @@ func main() {
 
 	// Precompute a matrix with all possible 0/1 columns.
 	p.AllCols = AllPossibleColumns(p.NCols)
-
-	// Temporary
-	notify.Printf("TT = %v", tt)
-	qubo := QUBO{
-		Params: &p,
-		Coeffs: []float64{0, 0, 3.0, 1.0, -2.0, -2.0},
-	}
-	bad, _ := qubo.Evaluate()
-	notify.Printf("Bad = %v", bad)
 }
