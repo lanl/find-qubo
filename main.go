@@ -5,8 +5,10 @@ Find parameters for a QUBO given a truth table.
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"sort"
 )
 
 // notify is used to output error messages.
@@ -14,6 +16,28 @@ var notify *log.Logger
 
 // status is used to output status messages.
 var status *log.Logger
+
+// outputEvaluation pretty-prints the evaluation of all inputs.
+func outputEvaluation(nc int, eval []float64) {
+	// Map each value to its rank.
+	sorted := make([]float64, len(eval))
+	copy(sorted, eval)
+	sort.Float64s(sorted)
+	rank := make(map[float64]int)
+	for i, v := range sorted {
+		if _, ok := rank[v]; ok {
+			continue // Ignore duplicate values
+		}
+		rank[v] = i + 1
+	}
+
+	// Output each input string, output value, and rank.
+	status.Print("Complete evaluation:")
+	digits := len(fmt.Sprintf("%d", len(eval)+1))
+	for i, v := range eval {
+		status.Printf("    %0*b  %18.15f  %*d", nc, i, v, digits, rank[v])
+	}
+}
 
 func main() {
 	// Initialize program parameters.
@@ -32,10 +56,9 @@ func main() {
 
 	// Try to find coefficients that represent the truth table.
 	qubo, bad := OptimizeCoeffs(&p)
+
+	// Output what we found.
 	status.Printf("Final coefficients = %v", qubo.Coeffs)
 	status.Printf("Final badness = %v", bad)
-	status.Print("Complete evaluation:")
-	for i, v := range qubo.EvaluateAllInputs() {
-		status.Printf("    %0*b  %15.18f", nc, i, v)
-	}
+	outputEvaluation(nc, qubo.EvaluateAllInputs())
 }
