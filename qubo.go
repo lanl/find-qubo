@@ -95,14 +95,32 @@ func (q QUBO) Evaluate() (float64, error) {
 		minVal = math.Min(minVal, v)
 	}
 
+	// Find the maximum valid output.
+	maxValid := -math.MaxFloat64
+	for r, v := range vals {
+		if p.TT[r] {
+			maxValid = math.Max(maxValid, v)
+		}
+	}
+
 	// Penalize valid rows in the truth table that produced a
 	// non-minimal value.
 	bad := 0.0
 	for r, v := range vals {
-		if !p.TT[r] {
-			continue
+		switch {
+		case p.TT[r]:
+			// Valid row: Penalize according to the value's amount
+			// above the global minimal value.
+			bad += math.Pow(v-minVal, 2.0)
+		case v <= maxValid:
+			// Invalid row with a value less than or equal to the
+			// maximum valid value: penalize according to the
+			// value's amount below the maximum valid value.
+			bad += math.Pow(v-maxValid, 2.0) * 10.0
+		default:
+			// Invalid row with a value greater than the maximum
+			// valid value: No penalty.
 		}
-		bad += math.Pow(v-minVal, 2.0)
 	}
 	return bad, nil
 }
