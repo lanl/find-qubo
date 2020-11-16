@@ -114,8 +114,8 @@ func (q QUBO) Evaluate() (float64, error) {
 			bad += math.Pow(v-minVal, 2.0)
 		case v <= maxValid:
 			// Invalid row with a value less than or equal to the
-			// maximum valid value: penalize according to the
-			// value's amount below the maximum valid value.
+			// maximum valid value: severely penalize according to
+			// the value's amount below the maximum valid value.
 			bad += math.Pow(v-maxValid, 2.0) * 10.0
 		default:
 			// Invalid row with a value greater than the maximum
@@ -191,7 +191,7 @@ func (q QUBO) Mutate(rng *rand.Rand) {
 // Crossover randomly blends the coefficients of two QUBOs.
 func (q QUBO) Crossover(g eaopt.Genome, rng *rand.Rand) {
 	q2 := g.(QUBO)
-	eaopt.CrossGNXFloat64(q.Coeffs, q2.Coeffs, 2, rng)
+	eaopt.CrossUniformFloat64(q.Coeffs, q2.Coeffs, rng)
 }
 
 // Clone returns a copy of a QUBO.
