@@ -56,8 +56,9 @@ func NewRandomQUBO(p *Parameters, rng *rand.Rand) QUBO {
 	}
 }
 
-// Evaluate computes the badness of a set of coefficients.
-func (q QUBO) Evaluate() (float64, error) {
+// EvaluateAllInputs multiplies the QUBO by each input column in turn (i.e.,
+// x'*Q*x for all x).
+func (q QUBO) EvaluateAllInputs() []float64 {
 	// Convert the coefficients to an upper-triangular matrix.
 	p := q.Params // Global parameters
 	n := p.NCols  // Number of columns and rows
@@ -81,8 +82,14 @@ func (q QUBO) Evaluate() (float64, error) {
 		m.Product(col.T(), Q, col)
 		vals[r] = m.At(0, 0)
 	}
+	return vals
+}
 
+// Evaluate computes the badness of a set of coefficients.
+func (q QUBO) Evaluate() (float64, error) {
 	// Find the minimum output across all inputs.
+	p := q.Params
+	vals := q.EvaluateAllInputs()
 	minVal := math.MaxFloat64
 	for _, v := range vals {
 		minVal = math.Min(minVal, v)

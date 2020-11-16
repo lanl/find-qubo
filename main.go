@@ -34,4 +34,8 @@ func main() {
 	qubo, bad := OptimizeCoeffs(&p)
 	status.Printf("Final coefficients = %v", qubo.Coeffs)
 	status.Printf("Final badness = %v", bad)
+	status.Print("Complete evaluation:")
+	for i, v := range qubo.EvaluateAllInputs() {
+		status.Printf("    %0*b  %15.18f", nc, i, v)
+	}
 }
