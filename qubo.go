@@ -295,8 +295,9 @@ func OptimizeCoeffs(p *Parameters) (QUBO, float64) {
 	cfg.Callback = func(ga *eaopt.GA) {
 		hof := ga.HallOfFame[0]
 		bad := hof.Fitness
-		if bad < prevBest {
-			// Report when we have a new least badness.
+		if bad < prevBest && time.Since(prevReport) > 1*time.Second{
+			// Report when we have a new least badness but not more
+			// than once per second.
 			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
 			status.Printf("Best coefficients = %v", hof.Genome.(QUBO).Coeffs)
 			prevBest = bad
