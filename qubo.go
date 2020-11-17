@@ -107,6 +107,7 @@ func (q QUBO) Evaluate() (float64, error) {
 	// value and invalid rows that produced a value better than any valid
 	// row.
 	bad := 0.0
+	wt := float64(len(p.TT)) * math.Max(p.MaxL, p.MaxQ)
 	for r, v := range vals {
 		switch {
 		case p.TT[r]:
@@ -117,7 +118,7 @@ func (q QUBO) Evaluate() (float64, error) {
 			// Invalid row with a value less than or equal to the
 			// maximum valid value: severely penalize according to
 			// the value's amount below the maximum valid value.
-			bad += math.Pow(v-maxValid, 2.0) * 10.0
+			bad += math.Pow(v-maxValid, 2.0) * wt
 		default:
 			// Invalid row with a value greater than the maximum
 			// valid value: No penalty.
@@ -139,10 +140,24 @@ func (q QUBO) mutateRandomize(rng *rand.Rand) {
 	}
 }
 
+// mutateRandomizeAll mutates all coefficients at random.
+func (q QUBO) mutateRandomizeAll(rng *rand.Rand) {
+	p := q.Params
+	for c := range q.Coeffs {
+		if c < p.NCols {
+			// Linear coefficient
+			q.Coeffs[c] = rng.Float64()*(p.MaxL-p.MinL) + p.MinL
+		} else {
+			// Quadratic coefficient
+			q.Coeffs[c] = rng.Float64()*(p.MaxQ-p.MinQ) + p.MinQ
+		}
+	}
+}
+
 // mutateRound rounds all coefficients to the nearest N.
 func (q QUBO) mutateRound(rng *rand.Rand) {
 	ns := [...]float64{0x1p-8, 0x1p-16, 0x1p-24}
-	n:=ns[rng.Intn(len(ns))]
+	n := ns[rng.Intn(len(ns))]
 	for i, c := range q.Coeffs {
 		q.Coeffs[i] = math.Round(c/n) * n
 	}
@@ -177,12 +192,15 @@ func (q QUBO) Mutate(rng *rand.Rand) {
 	r := rng.Intn(100)
 	switch {
 	case r == 0:
+		// Randomize all coefficients (rare).
+		q.mutateRandomizeAll(rng)
+	case r == 1:
 		// Round all coefficients (rare).
 		q.mutateRound(rng)
-	case r < 20:
+	case r < 30:
 		// Copy one coefficient to another.
 		q.mutateCopy(rng)
-	case r < 20+30:
+	case r < 30+20:
 		// Randomize a single coefficient.
 		q.mutateRandomize(rng)
 	default:
