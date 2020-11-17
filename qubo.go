@@ -237,8 +237,8 @@ func OptimizeCoeffs(p *Parameters) (QUBO, float64) {
 	cfg.NGenerations = 10000000
 	cfg.Model = eaopt.ModGenerational{
 		Selector:  eaopt.SelElitism{},
-		MutRate:   0.75,
-		CrossRate: 0.75,
+		MutRate:   0.85,
+		CrossRate: 0.50,
 	}
 	prevBest := math.MaxFloat64 // Least badness seen so far
 	startTime := time.Now()     // Current time
