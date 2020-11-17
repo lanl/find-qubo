@@ -18,7 +18,7 @@ var notify *log.Logger
 var status *log.Logger
 
 // outputEvaluation pretty-prints the evaluation of all inputs.
-func outputEvaluation(nc int, eval []float64) {
+func outputEvaluation(p *Parameters, eval []float64) {
 	// Map each value to its rank.
 	sorted := make([]float64, len(eval))
 	copy(sorted, eval)
@@ -35,7 +35,11 @@ func outputEvaluation(nc int, eval []float64) {
 	status.Print("Complete evaluation:")
 	digits := len(fmt.Sprintf("%d", len(eval)+1))
 	for i, v := range eval {
-		status.Printf("    %0*b  %18.15f  %*d", nc, i, v, digits, rank[v])
+		validMark := ' '
+		if p.TT[i] {
+			validMark = '*'
+		}
+		status.Printf("    %0*b %c  %18.15f  %*d", p.NCols, i, validMark, v, digits, rank[v])
 	}
 }
 
@@ -62,5 +66,5 @@ func main() {
 	status.Printf("Final coefficients = %v", qubo.Coeffs)
 	qubo.Rescale()
 	status.Printf("Rescaled coefficients = %v", qubo.Coeffs)
-	outputEvaluation(nc, qubo.EvaluateAllInputs())
+	outputEvaluation(&p, qubo.EvaluateAllInputs())
 }

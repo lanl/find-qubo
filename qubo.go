@@ -103,8 +103,9 @@ func (q QUBO) Evaluate() (float64, error) {
 		}
 	}
 
-	// Penalize valid rows in the truth table that produced a
-	// non-minimal value.
+	// Penalize valid rows in the truth table that produced a non-minimal
+	// value and invalid rows that produced a value better than any valid
+	// row.
 	bad := 0.0
 	for r, v := range vals {
 		switch {
