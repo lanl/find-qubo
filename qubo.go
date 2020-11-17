@@ -14,7 +14,7 @@ import (
 
 // GoodEnoughBadness is a badness level we consider good enough to terminate
 // optimization.
-const GoodEnoughBadness = 1e-10
+const GoodEnoughBadness = 1e-12
 
 // AllPossibleColumns returns a matrix containing all possible columns
 // for a given number of rows that contain only 0s and 1s.
@@ -204,12 +204,37 @@ func (q QUBO) Clone() eaopt.Genome {
 	}
 }
 
+// Rescale scales all coefficients so the maximum is as large as possible.
+func (q QUBO) Rescale() {
+	// Find the maximal linear term.
+	p := q.Params
+	nc := p.NCols
+	maxLin := -math.MaxFloat64
+	for i := 0; i < nc; i++ {
+		maxLin = math.Max(maxLin, q.Coeffs[i])
+	}
+
+	// Find the maximal quadratic term.
+	maxQuad := -math.MaxFloat64
+	for i := nc; i < len(q.Coeffs); i++ {
+		maxQuad = math.Max(maxQuad, q.Coeffs[i])
+	}
+
+	// Scale all coefficients equally.
+	maxL := math.Min(p.MaxL, -p.MinL)
+	maxQ := math.Min(p.MaxQ, -p.MinQ)
+	scale := math.Min(maxL/maxLin, maxQ/maxQuad)
+	for i := range q.Coeffs {
+		q.Coeffs[i] *= scale
+	}
+}
+
 // OptimizeCoeffs tries to find the coefficients that best represent the given
 // truth table and the corresponding badness.  It aborts on error.
 func OptimizeCoeffs(p *Parameters) (QUBO, float64) {
 	// Create a genetic-algorithm object.
 	cfg := eaopt.NewDefaultGAConfig()
-	cfg.NGenerations = 1000000
+	cfg.NGenerations = 10000000
 	cfg.Model = eaopt.ModGenerational{
 		Selector:  eaopt.SelElitism{},
 		MutRate:   0.75,

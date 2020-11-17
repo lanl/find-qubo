@@ -40,10 +40,18 @@ func ParseCommandLine(p *Parameters) {
 	}
 
 	// Validate the arguments.
-	if p.MinQ >= p.MaxQ {
+	switch {
+	case p.MinQ >= p.MaxQ:
 		notify.Fatal("--qmin must specify a value that is less than --qmax")
-	}
-	if p.MinL >= p.MaxL {
+	case p.MinL >= p.MaxL:
 		notify.Fatal("--lmin must specify a value that is less than --lmax")
+	case p.MinL >= 0.0:
+		notify.Fatal("--lmin must be negative")
+	case p.MinQ >= 0.0:
+		notify.Fatal("--qmin must be negative")
+	case p.MaxL <= 0.0:
+		notify.Fatal("--lmax must be positive")
+	case p.MaxQ <= 0.0:
+		notify.Fatal("--qmax must be positive")
 	}
 }

@@ -58,7 +58,9 @@ func main() {
 	qubo, bad := OptimizeCoeffs(&p)
 
 	// Output what we found.
-	status.Printf("Final coefficients = %v", qubo.Coeffs)
 	status.Printf("Final badness = %v", bad)
+	status.Printf("Final coefficients = %v", qubo.Coeffs)
+	qubo.Rescale()
+	status.Printf("Rescaled coefficients = %v", qubo.Coeffs)
 	outputEvaluation(nc, qubo.EvaluateAllInputs())
 }
