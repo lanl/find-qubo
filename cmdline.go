@@ -20,6 +20,7 @@ type Parameters struct {
 	MaxL    float64    // Maximum linear coefficient
 	TT      TruthTable // The truth-table proper
 	NCols   int        // Number of columns in the truth table
+	NAnc    int        // Number of ancilla columns
 	AllCols *mat.Dense // Matrix with all 2^n columns for n rows
 }
 
@@ -34,6 +35,7 @@ func ParseCommandLine(p *Parameters) {
 	flag.Float64Var(&p.MaxQ, "qmax", 1.0, "Maximum quadratic coefficient")
 	flag.Float64Var(&p.MinL, "lmin", -1.0, "Minimum linear coefficient")
 	flag.Float64Var(&p.MaxL, "lmax", 1.0, "Maximum linear coefficient")
+	flag.IntVar(&p.NAnc, "ancillae", 0, "Number of ancilla columns to add")
 	flag.Parse()
 	if flag.NArg() >= 1 {
 		p.TTName = flag.Arg(0)
@@ -53,5 +55,8 @@ func ParseCommandLine(p *Parameters) {
 		notify.Fatal("--lmax must be positive")
 	case p.MaxQ <= 0.0:
 		notify.Fatal("--qmax must be positive")
+	}
+	if p.NAnc < 0 {
+		notify.Fatal("--ancillae must be non-negative")
 	}
 }

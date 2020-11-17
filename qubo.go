@@ -85,6 +85,33 @@ func (q QUBO) EvaluateAllInputs() []float64 {
 	return vals
 }
 
+// SelectValidRows is a helper function for Evaluate that selects at most one
+// row in each batch of 2^a (with a ancillae) to treat as valid.
+func (q QUBO) SelectValidRows(vals []float64) []bool {
+	// Iterate over each base row (i.e., rows if there were no ancillae).
+	p := q.Params
+	nRows := len(p.TT)
+	valids := make([]bool, nRows)
+	bSize := 1 << p.NAnc // Number of rows to consider as a single batch
+	for base := 0; base < nRows; base += bSize {
+		// Select the smallest-valued row as the valid row.
+		if !p.TT[base] {
+			continue // No rows in the batch should be considered valid.
+		}
+		var vRow int // Single valid row
+		minVal := math.MaxFloat64
+		for ofs := 0; ofs < bSize; ofs++ {
+			r := base + ofs
+			if vals[r] < minVal {
+				minVal = vals[r]
+				vRow = r
+			}
+		}
+		valids[vRow] = true
+	}
+	return valids
+}
+
 // Evaluate computes the badness of a set of coefficients.
 func (q QUBO) Evaluate() (float64, error) {
 	// Find the minimum output across all inputs.
@@ -97,8 +124,9 @@ func (q QUBO) Evaluate() (float64, error) {
 
 	// Find the maximum valid output.
 	maxValid := -math.MaxFloat64
+	isValid := q.SelectValidRows(vals)
 	for r, v := range vals {
-		if p.TT[r] {
+		if isValid[r] {
 			maxValid = math.Max(maxValid, v)
 		}
 	}
@@ -110,7 +138,7 @@ func (q QUBO) Evaluate() (float64, error) {
 	wt := float64(len(p.TT)) * math.Max(p.MaxL, p.MaxQ)
 	for r, v := range vals {
 		switch {
-		case p.TT[r]:
+		case isValid[r]:
 			// Valid row: Penalize according to the value's amount
 			// above the global minimal value.
 			bad += math.Pow(v-minVal, 2.0)

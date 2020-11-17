@@ -111,5 +111,26 @@ func ReadTruthTable(p *Parameters) (TruthTable, int) {
 	if prevNC == 0 {
 		notify.Fatal("Truth table is empty")
 	}
-	return tt, prevNC
+
+	// Append ancilla columns to the table we just created.
+	return tt.appendAncillae(prevNC, p.NAnc), prevNC + p.NAnc
+}
+
+// appendAncillae returns a new truth table with ancillary columns appended to
+// the right.
+func (tt TruthTable) appendAncillae(nc, na int) TruthTable {
+	// Return the original truth table if we have no ancillae to add.
+	if na == 0 {
+		return tt
+	}
+
+	// Iterate over each row of the original truth table.
+	tta := make(TruthTable, 0, 1<<(nc+na))
+	for _, b := range tt {
+		// Replicate each row 2^na times.
+		for i := 0; i < 1<<na; i++ {
+			tta = append(tta, b)
+		}
+	}
+	return tta
 }

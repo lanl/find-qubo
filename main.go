@@ -18,7 +18,7 @@ var notify *log.Logger
 var status *log.Logger
 
 // outputEvaluation pretty-prints the evaluation of all inputs.
-func outputEvaluation(p *Parameters, eval []float64) {
+func outputEvaluation(p *Parameters, isValid []bool, eval []float64) {
 	// Map each value to its rank.
 	sorted := make([]float64, len(eval))
 	copy(sorted, eval)
@@ -33,7 +33,7 @@ func outputEvaluation(p *Parameters, eval []float64) {
 
 	// Tally the number of valid rows.
 	nValid := 0
-	for _, v := range p.TT {
+	for _, v := range isValid {
 		if v {
 			nValid++
 		}
@@ -45,7 +45,7 @@ func outputEvaluation(p *Parameters, eval []float64) {
 	for i, v := range eval {
 		// Set validMark to "*" for valid rows, " " for invalid rows.
 		validMark := ' '
-		if p.TT[i] {
+		if isValid[i] {
 			validMark = '*'
 		}
 
@@ -53,9 +53,9 @@ func outputEvaluation(p *Parameters, eval []float64) {
 		// ranks.
 		badRank := ' '
 		switch {
-		case p.TT[i] && rank[v] > nValid:
+		case isValid[i] && rank[v] > nValid:
 			badRank = 'X'
-		case !p.TT[i] && rank[v] <= nValid:
+		case !isValid[i] && rank[v] <= nValid:
 			badRank = 'X'
 		}
 
@@ -87,5 +87,7 @@ func main() {
 	status.Printf("Final coefficients = %v", qubo.Coeffs)
 	qubo.Rescale()
 	status.Printf("Rescaled coefficients = %v", qubo.Coeffs)
-	outputEvaluation(&p, qubo.EvaluateAllInputs())
+	vals := qubo.EvaluateAllInputs()
+	isValid := qubo.SelectValidRows(vals)
+	outputEvaluation(&p, isValid, vals)
 }
