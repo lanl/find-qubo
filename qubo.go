@@ -195,9 +195,28 @@ func (q QUBO) mutateRound(rng *rand.Rand) {
 
 // mutateCopy copies one coefficient to another.
 func (q QUBO) mutateCopy(rng *rand.Rand) {
+	// Select two coefficients at random.
 	nc := len(q.Coeffs)
 	c1 := rng.Intn(nc)
-	c2 := (rng.Intn(nc-1) + c1 + 1) % nc                     // Different from c1
+	c2 := (rng.Intn(nc-1) + c1 + 1) % nc // Different from c1
+
+	// Sometimes replace these with the two nearest coefficients in
+	// magnitude that are not already equal.
+	if rng.Intn(5) == 0 {
+		closest := math.MaxFloat64
+		for i := 0; i < nc-1; i++ {
+			v1 := math.Abs(q.Coeffs[i])
+			for j := i + 1; j < nc; j++ {
+				v2 := math.Abs(q.Coeffs[j])
+				d := math.Abs(v1 - v2)
+				if d != 0.0 && d < closest {
+					closest = d
+					c1 = i
+					c2 = j
+				}
+			}
+		}
+	}
 	q.Coeffs[c1] = math.Copysign(q.Coeffs[c2], q.Coeffs[c1]) // Copy only the magnitude.
 }
 
@@ -308,8 +327,9 @@ func (q QUBO) AsOctaveMatrix() string {
 }
 
 // OptimizeCoeffs tries to find the coefficients that best represent the given
-// truth table and the corresponding badness.  It aborts on error.
-func OptimizeCoeffs(p *Parameters) (QUBO, float64) {
+// truth table, the corresponding badness, and the number of generations
+// evolved.  It aborts on error.
+func OptimizeCoeffs(p *Parameters) (QUBO, float64, uint) {
 	// Create a genetic-algorithm object.
 	cfg := eaopt.NewDefaultGAConfig()
 	cfg.NGenerations = 10000000
@@ -358,5 +378,5 @@ func OptimizeCoeffs(p *Parameters) (QUBO, float64) {
 
 	// Return the best coefficients we found.
 	hof := ga.HallOfFame[0]
-	return hof.Genome.(QUBO), hof.Fitness
+	return hof.Genome.(QUBO), hof.Fitness, ga.Generations
 }

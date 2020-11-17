@@ -80,9 +80,10 @@ func main() {
 	p.AllCols = AllPossibleColumns(p.NCols)
 
 	// Try to find coefficients that represent the truth table.
-	qubo, bad := OptimizeCoeffs(&p)
+	qubo, bad, nGen := OptimizeCoeffs(&p)
 
 	// Output what we found.
+	fmt.Printf("Total number of generations = %d\n", nGen)
 	fmt.Printf("Final badness = %v\n", bad)
 	fmt.Printf("Final coefficients = %v\n", qubo.Coeffs)
 	qubo.Rescale()
