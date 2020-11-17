@@ -19,7 +19,7 @@ type Parameters struct {
 	MinL    float64    // Minimum linear coefficient
 	MaxL    float64    // Maximum linear coefficient
 	TT      TruthTable // The truth-table proper
-	NCols   int        // Number of columns in the truth table
+	NCols   int        // Number of columns in the truth table, including ancillae
 	NAnc    int        // Number of ancilla columns
 	AllCols *mat.Dense // Matrix with all 2^n columns for n rows
 }

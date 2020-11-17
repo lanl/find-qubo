@@ -60,7 +60,7 @@ func outputEvaluation(p *Parameters, isValid []bool, eval []float64) {
 		}
 
 		// Output the current row of the truth table.
-		status.Printf("    %0*b %c  %18.15f  %*d %c", p.NCols, i, validMark, v, digits, rank[v], badRank)
+		fmt.Printf("    %0*b %c  %18.15f  %*d %c\n", p.NCols, i, validMark, v, digits, rank[v], badRank)
 	}
 }
 
@@ -83,10 +83,11 @@ func main() {
 	qubo, bad := OptimizeCoeffs(&p)
 
 	// Output what we found.
-	status.Printf("Final badness = %v", bad)
-	status.Printf("Final coefficients = %v", qubo.Coeffs)
+	fmt.Printf("Final badness = %v\n", bad)
+	fmt.Printf("Final coefficients = %v\n", qubo.Coeffs)
 	qubo.Rescale()
-	status.Printf("Rescaled coefficients = %v", qubo.Coeffs)
+	fmt.Printf("Rescaled coefficients = %v\n", qubo.Coeffs)
+	fmt.Printf("Matrix form = %v\n", qubo.AsOctaveMatrix())
 	vals := qubo.EvaluateAllInputs()
 	isValid := qubo.SelectValidRows(vals)
 	outputEvaluation(&p, isValid, vals)

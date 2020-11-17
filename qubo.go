@@ -4,8 +4,10 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/MaxHalford/eaopt"
@@ -278,6 +280,33 @@ func (q QUBO) Rescale() {
 	}
 }
 
+// AsOctaveMatrix returns the coefficients as a string that can be pasted into
+// GNU Octave or MATLAB.
+func (q QUBO) AsOctaveMatrix() string {
+	p := q.Params
+	i := p.NCols
+	oct := make([]string, p.NCols)
+	for r := 0; r < p.NCols; r++ {
+		row := make([]string, p.NCols)
+		for c := 0; c < p.NCols; c++ {
+			switch {
+			case c < r:
+				// Not in upper triangle
+				row[c] = "0"
+			case c == r:
+				// Linear term
+				row[c] = fmt.Sprint(q.Coeffs[c])
+			default:
+				// Quadratic term
+				row[c] = fmt.Sprint(q.Coeffs[i])
+				i++
+			}
+		}
+		oct[r] = strings.Join(row, " ")
+	}
+	return "[" + strings.Join(oct, " ; ") + "]"
+}
+
 // OptimizeCoeffs tries to find the coefficients that best represent the given
 // truth table and the corresponding badness.  It aborts on error.
 func OptimizeCoeffs(p *Parameters) (QUBO, float64) {
@@ -295,11 +324,13 @@ func OptimizeCoeffs(p *Parameters) (QUBO, float64) {
 	cfg.Callback = func(ga *eaopt.GA) {
 		hof := ga.HallOfFame[0]
 		bad := hof.Fitness
-		if bad < prevBest && time.Since(prevReport) > 1*time.Second{
+		if bad < prevBest && time.Since(prevReport) > 3*time.Second {
 			// Report when we have a new least badness but not more
 			// than once per second.
 			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
-			status.Printf("Best coefficients = %v", hof.Genome.(QUBO).Coeffs)
+			qubo := hof.Genome.(QUBO)
+			status.Printf("Best coefficients = %v", qubo.Coeffs)
+			status.Printf("    Matrix form = %s", qubo.AsOctaveMatrix())
 			prevBest = bad
 			prevReport = time.Now()
 			return
