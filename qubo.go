@@ -139,7 +139,9 @@ func (q QUBO) mutateRandomize(rng *rand.Rand) {
 }
 
 // mutateRound rounds all coefficients to the nearest N.
-func (q QUBO) mutateRound(n float64) {
+func (q QUBO) mutateRound(rng *rand.Rand) {
+	ns := [...]float64{0x1p-8, 0x1p-16, 0x1p-24}
+	n:=ns[rng.Intn(len(ns))]
 	for i, c := range q.Coeffs {
 		q.Coeffs[i] = math.Round(c/n) * n
 	}
@@ -175,7 +177,7 @@ func (q QUBO) Mutate(rng *rand.Rand) {
 	switch {
 	case r == 0:
 		// Round all coefficients (rare).
-		q.mutateRound(0x1p-14)
+		q.mutateRound(rng)
 	case r < 20:
 		// Copy one coefficient to another.
 		q.mutateCopy(rng)
