@@ -31,15 +31,36 @@ func outputEvaluation(p *Parameters, eval []float64) {
 		rank[v] = i + 1
 	}
 
+	// Tally the number of valid rows.
+	nValid := 0
+	for _, v := range p.TT {
+		if v {
+			nValid++
+		}
+	}
+
 	// Output each input string, output value, and rank.
 	status.Print("Complete evaluation:")
 	digits := len(fmt.Sprintf("%d", len(eval)+1))
 	for i, v := range eval {
+		// Set validMark to "*" for valid rows, " " for invalid rows.
 		validMark := ' '
 		if p.TT[i] {
 			validMark = '*'
 		}
-		status.Printf("    %0*b %c  %18.15f  %*d", p.NCols, i, validMark, v, digits, rank[v])
+
+		// Set badRank to "X" for misordered ranks, " " for correct
+		// ranks.
+		badRank := ' '
+		switch {
+		case p.TT[i] && rank[v] > nValid:
+			badRank = 'X'
+		case !p.TT[i] && rank[v] <= nValid:
+			badRank = 'X'
+		}
+
+		// Output the current row of the truth table.
+		status.Printf("    %0*b %c  %18.15f  %*d %c", p.NCols, i, validMark, v, digits, rank[v], badRank)
 	}
 }
 
