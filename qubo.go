@@ -118,7 +118,7 @@ func (q QUBO) Evaluate() (float64, error) {
 			// Invalid row with a value less than or equal to the
 			// maximum valid value: severely penalize according to
 			// the value's amount below the maximum valid value.
-			bad += math.Pow(v-maxValid, 2.0) * wt
+			bad += (math.Pow(v-maxValid, 2.0) + 1) * wt
 		default:
 			// Invalid row with a value greater than the maximum
 			// valid value: No penalty.
