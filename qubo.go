@@ -175,7 +175,7 @@ func (q QUBO) Mutate(rng *rand.Rand) {
 	switch {
 	case r == 0:
 		// Round all coefficients (rare).
-		q.mutateRound(1e-10)
+		q.mutateRound(0x1p-14)
 	case r < 20:
 		// Copy one coefficient to another.
 		q.mutateCopy(rng)
@@ -211,13 +211,13 @@ func (q QUBO) Rescale() {
 	nc := p.NCols
 	maxLin := -math.MaxFloat64
 	for i := 0; i < nc; i++ {
-		maxLin = math.Max(maxLin, q.Coeffs[i])
+		maxLin = math.Max(maxLin, math.Abs(q.Coeffs[i]))
 	}
 
 	// Find the maximal quadratic term.
 	maxQuad := -math.MaxFloat64
 	for i := nc; i < len(q.Coeffs); i++ {
-		maxQuad = math.Max(maxQuad, q.Coeffs[i])
+		maxQuad = math.Max(maxQuad, math.Abs(q.Coeffs[i]))
 	}
 
 	// Scale all coefficients equally.
