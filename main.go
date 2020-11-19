@@ -79,6 +79,9 @@ func main() {
 	// Precompute a matrix with all possible 0/1 columns.
 	p.AllCols = AllPossibleColumns(p.NCols)
 
+	// Precompute the maximum gap, rounded up to a power of 10.
+	p.MaxGap = findMaxGap(&p)
+
 	// Try to find coefficients that represent the truth table.
 	qubo, bad, nGen := OptimizeCoeffs(&p)
 
@@ -88,6 +91,8 @@ func main() {
 	fmt.Printf("Final coefficients = %v\n", qubo.Coeffs)
 	qubo.Rescale()
 	fmt.Printf("Rescaled coefficients = %v\n", qubo.Coeffs)
+	qubo.Evaluate() // Recompute the gap.
+	fmt.Printf("Final valid/invalid gap = %v\n", qubo.Gap)
 	fmt.Printf("Matrix form = %v\n", qubo.AsOctaveMatrix())
 	vals := qubo.EvaluateAllInputs()
 	isValid := qubo.SelectValidRows(vals)

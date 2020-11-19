@@ -14,10 +14,6 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-// GoodEnoughBadness is a badness level we consider good enough to terminate
-// optimization.
-const GoodEnoughBadness = 1e-12
-
 // AllPossibleColumns returns a matrix containing all possible columns
 // for a given number of rows that contain only 0s and 1s.
 func AllPossibleColumns(nr int) *mat.Dense {
@@ -37,10 +33,11 @@ func AllPossibleColumns(nr int) *mat.Dense {
 type QUBO struct {
 	Params *Parameters // Pointer to global program parameters
 	Coeffs []float64   // List of linear followed by quadratic coefficients
+	Gap    float64     // Difference in value between the maximum valid row and the minimum invalid row
 }
 
 // NewRandomQUBO returns a QUBO with random coefficients.
-func NewRandomQUBO(p *Parameters, rng *rand.Rand) QUBO {
+func NewRandomQUBO(p *Parameters, rng *rand.Rand) *QUBO {
 	nCfs := p.NCols * (p.NCols + 1) / 2
 	cfs := make([]float64, nCfs)
 	for c := range cfs {
@@ -52,15 +49,16 @@ func NewRandomQUBO(p *Parameters, rng *rand.Rand) QUBO {
 			cfs[c] = rng.Float64()*(p.MaxQ-p.MinQ) + p.MinQ
 		}
 	}
-	return QUBO{
+	return &QUBO{
 		Params: p,
 		Coeffs: cfs,
+		Gap:    -math.MaxFloat64,
 	}
 }
 
 // EvaluateAllInputs multiplies the QUBO by each input column in turn (i.e.,
 // x'*Q*x for all x).
-func (q QUBO) EvaluateAllInputs() []float64 {
+func (q *QUBO) EvaluateAllInputs() []float64 {
 	// Convert the coefficients to an upper-triangular matrix.
 	p := q.Params // Global parameters
 	n := p.NCols  // Number of columns and rows
@@ -89,7 +87,7 @@ func (q QUBO) EvaluateAllInputs() []float64 {
 
 // SelectValidRows is a helper function for Evaluate that selects at most one
 // row in each batch of 2^a (with a ancillae) to treat as valid.
-func (q QUBO) SelectValidRows(vals []float64) []bool {
+func (q *QUBO) SelectValidRows(vals []float64) []bool {
 	// Iterate over each base row (i.e., rows if there were no ancillae).
 	p := q.Params
 	nRows := len(p.TT)
@@ -115,7 +113,7 @@ func (q QUBO) SelectValidRows(vals []float64) []bool {
 }
 
 // Evaluate computes the badness of a set of coefficients.
-func (q QUBO) Evaluate() (float64, error) {
+func (q *QUBO) Evaluate() (float64, error) {
 	// Find the minimum output across all inputs.
 	p := q.Params
 	vals := q.EvaluateAllInputs()
@@ -124,14 +122,18 @@ func (q QUBO) Evaluate() (float64, error) {
 		minVal = math.Min(minVal, v)
 	}
 
-	// Find the maximum valid output.
+	// Find the maximum valid output and the minimum invalid output.
 	maxValid := -math.MaxFloat64
+	minInvalid := math.MaxFloat64
 	isValid := q.SelectValidRows(vals)
 	for r, v := range vals {
 		if isValid[r] {
 			maxValid = math.Max(maxValid, v)
+		} else {
+			minInvalid = math.Min(minInvalid, v)
 		}
 	}
+	q.Gap = minInvalid - maxValid
 
 	// Penalize valid rows in the truth table that produced a non-minimal
 	// value and invalid rows that produced a value better than any valid
@@ -154,11 +156,18 @@ func (q QUBO) Evaluate() (float64, error) {
 			// valid value: No penalty.
 		}
 	}
+
+	// Add another penalty for small gaps, but only after we've
+	// successfully separated valid from invalid rows.
+	bad = (bad + 1.0) * p.MaxGap
+	if p.RewardGap && minInvalid > maxValid {
+		bad -= minInvalid - maxValid // Reward large gaps.
+	}
 	return bad, nil
 }
 
 // mutateRandomize mutates a single coefficient at random.
-func (q QUBO) mutateRandomize(rng *rand.Rand) {
+func (q *QUBO) mutateRandomize(rng *rand.Rand) {
 	p := q.Params
 	c := rng.Intn(len(q.Coeffs))
 	if c < p.NCols {
@@ -171,7 +180,7 @@ func (q QUBO) mutateRandomize(rng *rand.Rand) {
 }
 
 // mutateRandomizeAll mutates all coefficients at random.
-func (q QUBO) mutateRandomizeAll(rng *rand.Rand) {
+func (q *QUBO) mutateRandomizeAll(rng *rand.Rand) {
 	p := q.Params
 	for c := range q.Coeffs {
 		if c < p.NCols {
@@ -185,7 +194,7 @@ func (q QUBO) mutateRandomizeAll(rng *rand.Rand) {
 }
 
 // mutateRound rounds all coefficients to the nearest N.
-func (q QUBO) mutateRound(rng *rand.Rand) {
+func (q *QUBO) mutateRound(rng *rand.Rand) {
 	ns := [...]float64{0x1p-8, 0x1p-16, 0x1p-24}
 	n := ns[rng.Intn(len(ns))]
 	for i, c := range q.Coeffs {
@@ -193,8 +202,14 @@ func (q QUBO) mutateRound(rng *rand.Rand) {
 	}
 }
 
+// mutateFlipSign negates a single coefficient at random.
+func (q *QUBO) mutateFlipSign(rng *rand.Rand) {
+	c := rng.Intn(len(q.Coeffs))
+	q.Coeffs[c] = -q.Coeffs[c]
+}
+
 // mutateCopy copies one coefficient to another.
-func (q QUBO) mutateCopy(rng *rand.Rand) {
+func (q *QUBO) mutateCopy(rng *rand.Rand) {
 	// Select two coefficients at random.
 	nc := len(q.Coeffs)
 	c1 := rng.Intn(nc)
@@ -221,7 +236,7 @@ func (q QUBO) mutateCopy(rng *rand.Rand) {
 }
 
 // mutateNudge slightly modifies a single coefficient.
-func (q QUBO) mutateNudge(rng *rand.Rand) {
+func (q *QUBO) mutateNudge(rng *rand.Rand) {
 	const nudgeAmt = 1e-4
 	p := q.Params
 	c := rng.Intn(len(q.Coeffs))
@@ -237,7 +252,7 @@ func (q QUBO) mutateNudge(rng *rand.Rand) {
 }
 
 // Mutate mutates the QUBO's coefficients.
-func (q QUBO) Mutate(rng *rand.Rand) {
+func (q *QUBO) Mutate(rng *rand.Rand) {
 	r := rng.Intn(100)
 	switch {
 	case r == 0:
@@ -246,10 +261,13 @@ func (q QUBO) Mutate(rng *rand.Rand) {
 	case r == 1:
 		// Round all coefficients (rare).
 		q.mutateRound(rng)
-	case r < 30:
+	case r < 5:
+		// Negate a coefficient (fairly rare).
+		q.mutateFlipSign(rng)
+	case r < 5+30:
 		// Copy one coefficient to another.
 		q.mutateCopy(rng)
-	case r < 30+20:
+	case r < 5+30+20:
 		// Randomize a single coefficient.
 		q.mutateRandomize(rng)
 	default:
@@ -259,23 +277,24 @@ func (q QUBO) Mutate(rng *rand.Rand) {
 }
 
 // Crossover randomly blends the coefficients of two QUBOs.
-func (q QUBO) Crossover(g eaopt.Genome, rng *rand.Rand) {
-	q2 := g.(QUBO)
+func (q *QUBO) Crossover(g eaopt.Genome, rng *rand.Rand) {
+	q2 := g.(*QUBO)
 	eaopt.CrossUniformFloat64(q.Coeffs, q2.Coeffs, rng)
 }
 
 // Clone returns a copy of a QUBO.
-func (q QUBO) Clone() eaopt.Genome {
+func (q *QUBO) Clone() eaopt.Genome {
 	cfs := make([]float64, len(q.Coeffs))
 	copy(cfs, q.Coeffs)
-	return QUBO{
+	return &QUBO{
 		Params: q.Params,
 		Coeffs: cfs,
+		Gap:    q.Gap,
 	}
 }
 
 // Rescale scales all coefficients so the maximum is as large as possible.
-func (q QUBO) Rescale() {
+func (q *QUBO) Rescale() {
 	// Find the maximal linear term.
 	p := q.Params
 	nc := p.NCols
@@ -301,7 +320,7 @@ func (q QUBO) Rescale() {
 
 // AsOctaveMatrix returns the coefficients as a string that can be pasted into
 // GNU Octave or MATLAB.
-func (q QUBO) AsOctaveMatrix() string {
+func (q *QUBO) AsOctaveMatrix() string {
 	p := q.Params
 	i := p.NCols
 	oct := make([]string, p.NCols)
@@ -329,10 +348,10 @@ func (q QUBO) AsOctaveMatrix() string {
 // OptimizeCoeffs tries to find the coefficients that best represent the given
 // truth table, the corresponding badness, and the number of generations
 // evolved.  It aborts on error.
-func OptimizeCoeffs(p *Parameters) (QUBO, float64, uint) {
+func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 	// Create a genetic-algorithm object.
 	cfg := eaopt.NewDefaultGAConfig()
-	cfg.NGenerations = 10000000
+	cfg.NGenerations = 1000000
 	cfg.Model = eaopt.ModGenerational{
 		Selector:  eaopt.SelElitism{},
 		MutRate:   0.85,
@@ -341,6 +360,7 @@ func OptimizeCoeffs(p *Parameters) (QUBO, float64, uint) {
 	prevBest := math.MaxFloat64 // Least badness seen so far
 	startTime := time.Now()     // Current time
 	prevReport := startTime     // Last time we reported our status
+	separatedGen := -1          // First generation at which an HOF QUBO separated valid from invalid rows
 	cfg.Callback = func(ga *eaopt.GA) {
 		hof := ga.HallOfFame[0]
 		bad := hof.Fitness
@@ -348,9 +368,18 @@ func OptimizeCoeffs(p *Parameters) (QUBO, float64, uint) {
 			// Report when we have a new least badness but not more
 			// than once per second.
 			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
-			qubo := hof.Genome.(QUBO)
-			status.Printf("Best coefficients = %v", qubo.Coeffs)
+			qubo := hof.Genome.(*QUBO)
+			status.Printf("    Best coefficients = %v", qubo.Coeffs)
 			status.Printf("    Matrix form = %s", qubo.AsOctaveMatrix())
+			if qubo.Gap >= 0.0 {
+				status.Printf("    Valid/invalid gap = %v", qubo.Gap)
+			}
+			if qubo.Gap >= 0.0 && separatedGen == -1 {
+				status.Print("All valid rows finally have lower values than all invalid rows!")
+				status.Printf("Running for %d more generations in attempt to increase the valid/invalid gap", p.GapIters)
+				separatedGen = int(ga.Generations)
+				p.RewardGap = true
+			}
 			prevBest = bad
 			prevReport = time.Now()
 			return
@@ -361,7 +390,7 @@ func OptimizeCoeffs(p *Parameters) (QUBO, float64, uint) {
 		}
 	}
 	cfg.EarlyStop = func(ga *eaopt.GA) bool {
-		return ga.HallOfFame[0].Fitness <= GoodEnoughBadness
+		return separatedGen >= 0 && int(ga.Generations)-separatedGen > p.GapIters
 	}
 	ga, err := cfg.NewGA()
 	if err != nil {
@@ -378,5 +407,5 @@ func OptimizeCoeffs(p *Parameters) (QUBO, float64, uint) {
 
 	// Return the best coefficients we found.
 	hof := ga.HallOfFame[0]
-	return hof.Genome.(QUBO), hof.Fitness, ga.Generations
+	return hof.Genome.(*QUBO), hof.Fitness, ga.Generations
 }
