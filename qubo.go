@@ -36,69 +36,32 @@ type QUBO struct {
 	Gap    float64     // Difference in value between the maximum valid row and the minimum invalid row
 }
 
-// NewBiasedQUBO returns a QUBO with coefficients biased to select or
-// reject an individual row, chosen at random.
-func NewBiasedQUBO(p *Parameters, rng *rand.Rand) *QUBO {
-	// Select a row at random.
-	row := rng.Intn(len(p.TT))
-	valid := p.TT[row]
-
-	// Assign linear coefficients.
-	nCfs := p.NCols * (p.NCols + 1) / 2
-	cfs := make([]float64, nCfs)
-	for b := 0; b < p.NCols; b++ {
-		rb := p.NCols - b - 1 // Reverse bit order.
-		v := (row >> rb) & 1
-		switch {
-		case valid && v == 0:
-			cfs[b] = 1.0
-		case valid && v == 1:
-			cfs[b] = -1.0
-		case !valid && v == 0:
-			cfs[b] = -1.0
-		case !valid && v == 1:
-			cfs[b] = 1.0
-		}
+// NewSPSOQUBO runs a quick particle-swarm optimization to choose initial
+// QUBO coefficients for further genetic-algorithm optimization.
+func NewSPSOQUBO(p *Parameters, rng *rand.Rand) *QUBO {
+	spso, err := eaopt.NewDefaultSPSO()
+	if err != nil {
+		notify.Fatal(err)
 	}
-
-	// Assign quadraric coefficients.
-	i := p.NCols
-	for b0 := 0; b0 < p.NCols-1; b0++ {
-		rb0 := p.NCols - b0 - 1 // Reverse bit order.
-		v0 := (row >> rb0) & 1
-		for b1 := b0 + 1; b1 < p.NCols; b1++ {
-			rb1 := p.NCols - b1 - 1 // Reverse bit order.
-			v1 := (row >> rb1) & 1
-			switch {
-			case valid && v0 == v1:
-				cfs[b0] += 1.0
-				cfs[b1] += 1.0
-				cfs[i] -= 2.0
-			case valid && v0 != v1:
-				cfs[b0] -= 1.0
-				cfs[b1] -= 1.0
-				cfs[i] += 2.0
-			case !valid && v0 == v1:
-				cfs[b0] -= 1.0
-				cfs[b1] -= 1.0
-				cfs[i] += 2.0
-			case !valid && v0 != v1:
-				cfs[b0] += 1.0
-				cfs[b1] += 1.0
-				cfs[i] -= 2.0
-			}
-			i++
+	spso.Min = math.Max(p.MinL, p.MinQ)
+	spso.Max = math.Min(p.MaxL, p.MaxQ)
+	cfs, _, err := spso.Minimize(func(cfs []float64) float64 {
+		qubo := &QUBO{
+			Params: p,
+			Coeffs: cfs,
+			Gap:    -math.MaxFloat64,
 		}
+		bad, _ := qubo.Evaluate()
+		return bad
+	}, uint((p.NCols*(p.NCols+1))/2))
+	if err != nil {
+		notify.Fatal(err)
 	}
-
-	// Construct a QUBO with maximal coefficient range.
-	qubo := &QUBO{
+	return &QUBO{
 		Params: p,
 		Coeffs: cfs,
 		Gap:    -math.MaxFloat64,
 	}
-	qubo.Rescale()
-	return qubo
 }
 
 // EvaluateAllInputs multiplies the QUBO by each input column in turn (i.e.,
@@ -444,7 +407,7 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 
 	// Run the genetic algorithm.
 	err = ga.Minimize(func(rng *rand.Rand) eaopt.Genome {
-		return NewBiasedQUBO(p, rng)
+		return NewSPSOQUBO(p, rng)
 	})
 	if err != nil {
 		notify.Fatal(err)
