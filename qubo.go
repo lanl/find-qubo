@@ -89,6 +89,63 @@ func coeffsRandom(p *Parameters, rng *rand.Rand) []float64 {
 	return cfs
 }
 
+// coeffsBiased returns a set of coefficients that favors a single row of the
+// truth table, ignoring all others.
+func coeffsBiased(p *Parameters, rng *rand.Rand) []float64 {
+	// Select a row at random.
+	row := rng.Intn(len(p.TT))
+	valid := p.TT[row]
+
+	// Assign linear coefficients.
+	nCfs := p.NCols * (p.NCols + 1) / 2
+	cfs := make([]float64, nCfs)
+	for b := 0; b < p.NCols; b++ {
+		rb := p.NCols - b - 1 // Reverse bit order.
+		v := (row >> rb) & 1
+		switch {
+		case valid && v == 0:
+			cfs[b] = 1.0
+		case valid && v == 1:
+			cfs[b] = -1.0
+		case !valid && v == 0:
+			cfs[b] = -1.0
+		case !valid && v == 1:
+			cfs[b] = 1.0
+		}
+	}
+
+	// Assign quadraric coefficients.
+	i := p.NCols
+	for b0 := 0; b0 < p.NCols-1; b0++ {
+		rb0 := p.NCols - b0 - 1 // Reverse bit order.
+		v0 := (row >> rb0) & 1
+		for b1 := b0 + 1; b1 < p.NCols; b1++ {
+			rb1 := p.NCols - b1 - 1 // Reverse bit order.
+			v1 := (row >> rb1) & 1
+			switch {
+			case valid && v0 == v1:
+				cfs[b0] += 1.0
+				cfs[b1] += 1.0
+				cfs[i] -= 2.0
+			case valid && v0 != v1:
+				cfs[b0] -= 1.0
+				cfs[b1] -= 1.0
+				cfs[i] += 2.0
+			case !valid && v0 == v1:
+				cfs[b0] -= 1.0
+				cfs[b1] -= 1.0
+				cfs[i] += 2.0
+			case !valid && v0 != v1:
+				cfs[b0] += 1.0
+				cfs[b1] += 1.0
+				cfs[i] -= 2.0
+			}
+			i++
+		}
+	}
+	return cfs
+}
+
 // EvaluateAllInputs multiplies the QUBO by each input column in turn (i.e.,
 // x'*Q*x for all x).
 func (q *QUBO) EvaluateAllInputs() []float64 {
@@ -212,9 +269,27 @@ func (q *QUBO) mutateRandomize(rng *rand.Rand) {
 	}
 }
 
-// mutateRandomizeAll mutates all coefficients at random.
-func (q *QUBO) mutateRandomizeAll(rng *rand.Rand) {
-	q.Coeffs = coeffsRandom(q.Params, rng)
+// mutateReplaceAll mutates all coefficients at random.
+func (q *QUBO) mutateReplaceAll(rng *rand.Rand) {
+	switch rng.Intn(4) {
+	case 0:
+		// Local minimum found by particle-swarm optimization
+		q.Coeffs = coeffsSPSO(q.Params, rng)
+	case 1:
+		// Coefficients biased to favor a single row
+		q.Coeffs = coeffsBiased(q.Params, rng)
+	case 2:
+		// Coefficients biased to favor two rows
+		cf1 := coeffsBiased(q.Params, rng)
+		cf2 := coeffsBiased(q.Params, rng)
+		for i := range q.Coeffs {
+			q.Coeffs[i] = cf1[i] + cf2[i]
+		}
+	default:
+		// Completely random coefficients
+		q.Coeffs = coeffsRandom(q.Params, rng)
+	}
+	q.Rescale()
 }
 
 // mutateRound rounds all coefficients to the nearest N.
@@ -280,8 +355,8 @@ func (q *QUBO) Mutate(rng *rand.Rand) {
 	r := rng.Intn(100)
 	switch {
 	case r == 0:
-		// Randomize all coefficients (rare).
-		q.mutateRandomizeAll(rng)
+		// Replace all coefficients (rare).
+		q.mutateReplaceAll(rng)
 	case r == 1:
 		// Round all coefficients (rare).
 		q.mutateRound(rng)
@@ -377,7 +452,7 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 	cfg := eaopt.NewDefaultGAConfig()
 	cfg.NGenerations = 1000000
 	cfg.Model = eaopt.ModGenerational{
-		Selector:  eaopt.SelElitism{},
+		Selector:  eaopt.SelTournament{NContestants: 3},
 		MutRate:   0.85,
 		CrossRate: 0.50,
 	}
