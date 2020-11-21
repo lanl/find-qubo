@@ -225,6 +225,11 @@ func (q *QUBO) Evaluate() (float64, error) {
 	}
 	q.Gap = minInvalid - maxValid
 
+	// Unless --balance was provided, consider only the gap.
+	if !p.Balance {
+		return -q.Gap, nil
+	}
+
 	// Penalize valid rows in the truth table that produced a non-minimal
 	// value and invalid rows that produced a value better than any valid
 	// row.

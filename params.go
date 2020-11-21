@@ -22,6 +22,7 @@ type Parameters struct {
 	NCols     int        // Number of columns in the truth table, including ancillae
 	NAnc      int        // Number of ancilla columns
 	AllCols   *mat.Dense // Matrix with all 2^n columns for n rows
+	Balance   bool       // true=also consider valid-row balance; false=consider only gap
 	MaxGap    float64    // Loose upper bound on the maximum gap
 	GapIters  int        // Number of iterations to perform to increase the valid/invalid gap
 	RewardGap bool       // true=reward large valid/invalid gaps (later iterations); false=ignore them (early iterations)
@@ -46,6 +47,7 @@ func ParseCommandLine(p *Parameters) {
 	flag.Float64Var(&p.MaxQ, "qmax", 1.0, "Maximum quadratic coefficient")
 	flag.Float64Var(&p.MinL, "lmin", -1.0, "Minimum linear coefficient")
 	flag.Float64Var(&p.MaxL, "lmax", 1.0, "Maximum linear coefficient")
+	flag.BoolVar(&p.Balance, "balance", false, "Try harder to balance the values of valid rows")
 	flag.IntVar(&p.NAnc, "ancillae", 0, "Number of ancilla columns to add")
 	flag.IntVar(&p.GapIters, "gap-iters", 100000, "Number of extra iterations to perform to increase the valid/invalid gap")
 	flag.Parse()
