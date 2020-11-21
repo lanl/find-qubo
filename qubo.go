@@ -416,7 +416,20 @@ func (q *QUBO) Rescale() {
 	// Scale all coefficients equally.
 	maxL := math.Min(p.MaxL, -p.MinL)
 	maxQ := math.Min(p.MaxQ, -p.MinQ)
-	scale := math.Min(maxL/maxLin, maxQ/maxQuad)
+	var scale float64
+	switch {
+	case maxLin == 0.0 && maxQuad == 0.0:
+		// Both maxima are zero.
+	case maxLin == 0.0:
+		// All linear coefficients are zero.
+		scale = maxQ / maxQuad
+	case maxQuad == 0.0:
+		// All quadratic coefficients are zero.
+		scale = maxL / maxLin
+	default:
+		// Common case: Neither maximum is zero.
+		scale = math.Min(maxL/maxLin, maxQ/maxQuad)
+	}
 	for i := range q.Coeffs {
 		q.Coeffs[i] *= scale
 	}
@@ -470,15 +483,15 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 		bad := hof.Fitness
 		if bad < prevBest && time.Since(prevReport) > 3*time.Second {
 			// Report when we have a new least badness but not more
-			// than once per second.
+			// than once every few seconds.
 			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
 			qubo := hof.Genome.(*QUBO)
 			status.Printf("    Best coefficients = %v", qubo.Coeffs)
 			status.Printf("    Matrix form = %s", qubo.AsOctaveMatrix())
-			if qubo.Gap >= 0.0 {
+			if qubo.Gap > 0.0 {
 				status.Printf("    Valid/invalid gap = %v", qubo.Gap)
 			}
-			if qubo.Gap >= 0.0 && separatedGen == -1 {
+			if qubo.Gap > 0.0 && separatedGen == -1 {
 				status.Print("All valid rows finally have lower values than all invalid rows!")
 				status.Printf("Running for %d more generations in attempt to increase the valid/invalid gap", p.GapIters)
 				separatedGen = int(ga.Generations)
