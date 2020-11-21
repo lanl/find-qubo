@@ -73,8 +73,10 @@ func coeffsSPSO(p *Parameters, rng *rand.Rand) []float64 {
 	return cfs
 }
 
-// coeffsRandom returns a completely random set of coefficients.
-func coeffsRandom(p *Parameters, rng *rand.Rand) []float64 {
+// coeffsRandom returns a completely random set of coefficients, optionally
+// rounding them to a given value.
+func coeffsRandom(p *Parameters, rng *rand.Rand, rt float64) []float64 {
+	// Generate random coefficients.
 	nc := p.NCols
 	cfs := make([]float64, (nc*(nc+1))/2)
 	for c := range cfs {
@@ -84,6 +86,18 @@ func coeffsRandom(p *Parameters, rng *rand.Rand) []float64 {
 		} else {
 			// Quadratic coefficient
 			cfs[c] = rng.Float64()*(p.MaxQ-p.MinQ) + p.MinQ
+		}
+	}
+
+	// Optionally round each of them towards zero.
+	if rt <= 0.0 {
+		return cfs
+	}
+	for i, v := range cfs {
+		if v >= 0.0 {
+			cfs[i] = math.Floor(v/rt) * rt
+		} else {
+			cfs[i] = math.Ceil(v/rt) * rt
 		}
 	}
 	return cfs
@@ -291,15 +305,17 @@ func (q *QUBO) mutateReplaceAll(rng *rand.Rand) {
 			q.Coeffs[i] = cf1[i] + cf2[i]
 		}
 	default:
-		// Completely random coefficients
-		q.Coeffs = coeffsRandom(q.Params, rng)
+		// Completely random coefficients, either rounded or not
+		rtChoices := [...]float64{0.0, 0.03125, 0.0625, 0.125, 0.25, 0.5}
+		rt := rtChoices[rng.Intn(len(rtChoices))]
+		q.Coeffs = coeffsRandom(q.Params, rng, rt)
 	}
 	q.Rescale()
 }
 
 // mutateRound rounds all coefficients to the nearest N.
 func (q *QUBO) mutateRound(rng *rand.Rand) {
-	ns := [...]float64{0x1p-8, 0x1p-16, 0x1p-24}
+	ns := [...]float64{0x1p-2, 0x1p-4, 0x1p-8, 0x1p-16, 0x1p-24}
 	n := ns[rng.Intn(len(ns))]
 	for i, c := range q.Coeffs {
 		q.Coeffs[i] = math.Round(c/n) * n
