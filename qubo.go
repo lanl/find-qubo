@@ -39,6 +39,19 @@ type QUBO struct {
 // NewSPSOQUBO runs a quick particle-swarm optimization to choose initial
 // QUBO coefficients for further genetic-algorithm optimization.
 func NewSPSOQUBO(p *Parameters, rng *rand.Rand) *QUBO {
+	qubo := &QUBO{
+		Params: p,
+		Coeffs: coeffsSPSO(p, rng),
+		Gap:    -math.MaxFloat64,
+	}
+	qubo.Rescale() // I'm not sure if SPSO honors the coefficient bounds.
+	return qubo
+}
+
+// coeffsSPSO returns coefficients found from particle-swarm optimization.
+// Empirical results indicate that these are likely to be a decent local
+// minimum.  The function aborts on error.
+func coeffsSPSO(p *Parameters, rng *rand.Rand) []float64 {
 	spso, err := eaopt.NewDefaultSPSO()
 	if err != nil {
 		notify.Fatal(err)
@@ -57,11 +70,23 @@ func NewSPSOQUBO(p *Parameters, rng *rand.Rand) *QUBO {
 	if err != nil {
 		notify.Fatal(err)
 	}
-	return &QUBO{
-		Params: p,
-		Coeffs: cfs,
-		Gap:    -math.MaxFloat64,
+	return cfs
+}
+
+// coeffsRandom returns a completely random set of coefficients.
+func coeffsRandom(p *Parameters, rng *rand.Rand) []float64 {
+	nc := p.NCols
+	cfs := make([]float64, (nc*(nc+1))/2)
+	for c := range cfs {
+		if c < nc {
+			// Linear coefficient
+			cfs[c] = rng.Float64()*(p.MaxL-p.MinL) + p.MinL
+		} else {
+			// Quadratic coefficient
+			cfs[c] = rng.Float64()*(p.MaxQ-p.MinQ) + p.MinQ
+		}
 	}
+	return cfs
 }
 
 // EvaluateAllInputs multiplies the QUBO by each input column in turn (i.e.,
@@ -189,16 +214,7 @@ func (q *QUBO) mutateRandomize(rng *rand.Rand) {
 
 // mutateRandomizeAll mutates all coefficients at random.
 func (q *QUBO) mutateRandomizeAll(rng *rand.Rand) {
-	p := q.Params
-	for c := range q.Coeffs {
-		if c < p.NCols {
-			// Linear coefficient
-			q.Coeffs[c] = rng.Float64()*(p.MaxL-p.MinL) + p.MinL
-		} else {
-			// Quadratic coefficient
-			q.Coeffs[c] = rng.Float64()*(p.MaxQ-p.MinQ) + p.MinQ
-		}
-	}
+	q.Coeffs = coeffsRandom(q.Params, rng)
 }
 
 // mutateRound rounds all coefficients to the nearest N.
