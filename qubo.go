@@ -290,25 +290,42 @@ func (q *QUBO) mutateRandomize(rng *rand.Rand) {
 
 // mutateReplaceAll mutates all coefficients at random.
 func (q *QUBO) mutateReplaceAll(rng *rand.Rand) {
+	// Select a set of coefficients to consider.
+	var cfs []float64
 	switch rng.Intn(4) {
 	case 0:
 		// Local minimum found by particle-swarm optimization
-		q.Coeffs = coeffsSPSO(q.Params, rng)
+		cfs = coeffsSPSO(q.Params, rng)
 	case 1:
 		// Coefficients biased to favor a single row
-		q.Coeffs = coeffsBiased(q.Params, rng)
+		cfs = coeffsBiased(q.Params, rng)
 	case 2:
 		// Coefficients biased to favor two rows
 		cf1 := coeffsBiased(q.Params, rng)
 		cf2 := coeffsBiased(q.Params, rng)
-		for i := range q.Coeffs {
-			q.Coeffs[i] = cf1[i] + cf2[i]
+		for i, v := range cf2 {
+			cf1[i] += v
 		}
-	default:
+		cfs = cf1
+	case 3:
 		// Completely random coefficients, either rounded or not
 		rtChoices := [...]float64{0.0, 0.03125, 0.0625, 0.125, 0.25, 0.5}
 		rt := rtChoices[rng.Intn(len(rtChoices))]
-		q.Coeffs = coeffsRandom(q.Params, rng, rt)
+		cfs = coeffsRandom(q.Params, rng, rt)
+	default:
+		panic("Unexpected option in mutateReplaceAll")
+	}
+
+	// Decide randomly whether to add or set the coefficients we just
+	// defined.
+	if rng.Intn(2) == 0 {
+		// Set
+		q.Coeffs = cfs
+	} else {
+		// Add
+		for i, v := range cfs {
+			q.Coeffs[i] += v
+		}
 	}
 	q.Rescale()
 }
