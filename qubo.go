@@ -313,15 +313,6 @@ func (q *QUBO) mutateReplaceAll(rng *rand.Rand) {
 	q.Rescale()
 }
 
-// mutateRound rounds all coefficients to the nearest N.
-func (q *QUBO) mutateRound(rng *rand.Rand) {
-	ns := [...]float64{0x1p-2, 0x1p-4, 0x1p-8, 0x1p-16, 0x1p-24}
-	n := ns[rng.Intn(len(ns))]
-	for i, c := range q.Coeffs {
-		q.Coeffs[i] = math.Round(c/n) * n
-	}
-}
-
 // mutateFlipSign negates a single coefficient at random.
 func (q *QUBO) mutateFlipSign(rng *rand.Rand) {
 	c := rng.Intn(len(q.Coeffs))
@@ -378,9 +369,6 @@ func (q *QUBO) Mutate(rng *rand.Rand) {
 	case r == 0:
 		// Replace all coefficients (rare).
 		q.mutateReplaceAll(rng)
-	case r == 1:
-		// Round all coefficients (rare).
-		q.mutateRound(rng)
 	case r < 5:
 		// Negate a coefficient (fairly rare).
 		q.mutateFlipSign(rng)
