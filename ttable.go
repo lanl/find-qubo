@@ -113,12 +113,12 @@ func ReadTruthTable(p *Parameters) (TruthTable, int) {
 	}
 
 	// Append ancilla columns to the table we just created.
-	return tt.appendAncillae(prevNC, p.NAnc), prevNC + p.NAnc
+	return tt.AppendAncillae(prevNC, p.NAnc), prevNC + p.NAnc
 }
 
-// appendAncillae returns a new truth table with ancillary columns appended to
+// AppendAncillae returns a new truth table with ancillary columns appended to
 // the right.
-func (tt TruthTable) appendAncillae(nc, na int) TruthTable {
+func (tt TruthTable) AppendAncillae(nc, na int) TruthTable {
 	// Return the original truth table if we have no ancillae to add.
 	if na == 0 {
 		return tt

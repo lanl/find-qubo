@@ -70,6 +70,11 @@ func main() {
 	status = log.New(os.Stderr, "INFO: ", 0)
 	var p Parameters
 	ParseCommandLine(&p)
+
+	// Read the input file.
+	p.TT, p.NCols = ReadTruthTable(&p)
+
+	// Set the remaining parameters.
 	PrepareGAParameters(&p)
 
 	// Try to find coefficients that represent the truth table.
@@ -87,6 +92,8 @@ func main() {
 			}
 			status.Printf("A solution with %d ancillary %s seems unlikely.", p.NAnc, varStr)
 			status.Printf("Increasing the number of ancillae from %d to %d and restarting the genetic algorithm.", p.NAnc, p.NAnc+1)
+			p.TT = p.TT.AppendAncillae(p.NCols, 1)
+			p.NCols++
 			p.NAnc++
 			PrepareGAParameters(&p)
 		}
