@@ -484,6 +484,40 @@ func (q *QUBO) AsOctaveMatrix() string {
 	return "[" + strings.Join(oct, " ; ") + "]"
 }
 
+// MakeGACallback returns a callback function to be executed after each
+// generation of the genetic algorithm.
+func MakeGACallback(p *Parameters) func(ga *eaopt.GA) {
+	prevBest := math.MaxFloat64 // Least badness seen so far
+	startTime := time.Now()     // Current time
+	prevReport := startTime     // Last time we reported our status
+	return func(ga *eaopt.GA) {
+		hof := ga.HallOfFame[0]
+		bad := hof.Fitness
+		if bad < prevBest && time.Since(prevReport) > 3*time.Second {
+			// Report when we have a new least badness but not more
+			// than once every few seconds.
+			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
+			qubo := hof.Genome.(*QUBO)
+			if qubo.Gap > 0.0 {
+				status.Printf("    Valid/invalid gap = %v", qubo.Gap)
+			}
+			if qubo.Gap > 0.0 && p.SeparatedGen == -1 {
+				status.Print("All valid rows finally have lower values than all invalid rows!")
+				status.Printf("Running for %d more generations in attempt to increase the valid/invalid gap", p.GapIters)
+				p.SeparatedGen = int(ga.Generations)
+				p.RewardGap = true
+			}
+			prevBest = bad
+			prevReport = time.Now()
+			return
+		}
+		if time.Since(prevReport) > 5*time.Second {
+			status.Printf("Working on generation %d at time %.1fs", ga.Generations, time.Since(startTime).Seconds())
+			prevReport = time.Now()
+		}
+	}
+}
+
 // OptimizeCoeffs tries to find the coefficients that best represent the given
 // truth table, the corresponding badness, and the number of generations
 // evolved.  It aborts on error.
@@ -500,38 +534,9 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 	cfg.NPops = uint(runtime.NumCPU())
 	cfg.Migrator = eaopt.MigRing{NMigrants: 5}
 	cfg.MigFrequency = 10000
-	prevBest := math.MaxFloat64 // Least badness seen so far
-	startTime := time.Now()     // Current time
-	prevReport := startTime     // Last time we reported our status
-	separatedGen := -1          // First generation at which an HOF QUBO separated valid from invalid rows
-	cfg.Callback = func(ga *eaopt.GA) {
-		hof := ga.HallOfFame[0]
-		bad := hof.Fitness
-		if bad < prevBest && time.Since(prevReport) > 3*time.Second {
-			// Report when we have a new least badness but not more
-			// than once every few seconds.
-			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
-			qubo := hof.Genome.(*QUBO)
-			if qubo.Gap > 0.0 {
-				status.Printf("    Valid/invalid gap = %v", qubo.Gap)
-			}
-			if qubo.Gap > 0.0 && separatedGen == -1 {
-				status.Print("All valid rows finally have lower values than all invalid rows!")
-				status.Printf("Running for %d more generations in attempt to increase the valid/invalid gap", p.GapIters)
-				separatedGen = int(ga.Generations)
-				p.RewardGap = true
-			}
-			prevBest = bad
-			prevReport = time.Now()
-			return
-		}
-		if time.Since(prevReport) > 5*time.Second {
-			status.Printf("Working on generation %d at time %.1fs", ga.Generations, time.Since(startTime).Seconds())
-			prevReport = time.Now()
-		}
-	}
+	cfg.Callback = MakeGACallback(p)
 	cfg.EarlyStop = func(ga *eaopt.GA) bool {
-		return separatedGen >= 0 && int(ga.Generations)-separatedGen > p.GapIters
+		return p.SeparatedGen >= 0 && int(ga.Generations)-p.SeparatedGen > p.GapIters
 	}
 	ga, err := cfg.NewGA()
 	if err != nil {

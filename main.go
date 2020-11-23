@@ -70,6 +70,7 @@ func main() {
 	status = log.New(os.Stderr, "INFO: ", 0)
 	var p Parameters
 	ParseCommandLine(&p)
+	p.SeparatedGen = -1 // We haven't yet separated valid from invalid.
 
 	// Read the input file.
 	tt, nc := ReadTruthTable(&p)

@@ -13,19 +13,20 @@ import (
 
 // Parameters is a collection of all program parameters.
 type Parameters struct {
-	TTName    string     // Name of the input truth-table file
-	MinQ      float64    // Minimum quadratic coefficient
-	MaxQ      float64    // Maximum quadratic coefficient
-	MinL      float64    // Minimum linear coefficient
-	MaxL      float64    // Maximum linear coefficient
-	TT        TruthTable // The truth-table proper
-	NCols     int        // Number of columns in the truth table, including ancillae
-	NAnc      int        // Number of ancilla columns
-	AllCols   *mat.Dense // Matrix with all 2^n columns for n rows
-	Balance   bool       // true=also consider valid-row balance; false=consider only gap
-	MaxGap    float64    // Loose upper bound on the maximum gap
-	GapIters  int        // Number of iterations to perform to increase the valid/invalid gap
-	RewardGap bool       // true=reward large valid/invalid gaps (later iterations); false=ignore them (early iterations)
+	TTName       string     // Name of the input truth-table file
+	MinQ         float64    // Minimum quadratic coefficient
+	MaxQ         float64    // Maximum quadratic coefficient
+	MinL         float64    // Minimum linear coefficient
+	MaxL         float64    // Maximum linear coefficient
+	TT           TruthTable // The truth-table proper
+	NCols        int        // Number of columns in the truth table, including ancillae
+	NAnc         int        // Number of ancilla columns
+	AllCols      *mat.Dense // Matrix with all 2^n columns for n rows
+	Balance      bool       // true=also consider valid-row balance; false=consider only gap
+	SeparatedGen int        // Iteration at which invalid and valid rows finally separated
+	MaxGap       float64    // Loose upper bound on the maximum gap
+	GapIters     int        // Number of iterations to perform to increase the valid/invalid gap
+	RewardGap    bool       // true=reward large valid/invalid gaps (later iterations); false=ignore them (early iterations)
 }
 
 // findMaxGap computes a loose, worst-case estimate of the valid/invalid gap.
