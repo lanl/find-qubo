@@ -495,22 +495,31 @@ func MakeGACallback(p *Parameters) func(ga *eaopt.GA) {
 		bad := hof.Fitness
 		if bad < prevBest && time.Since(prevReport) > 3*time.Second {
 			// Report when we have a new least badness but not more
-			// than once every few seconds.
+			// than once every 3 seconds.
 			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
 			qubo := hof.Genome.(*QUBO)
 			if qubo.Gap > 0.0 {
 				status.Printf("    Valid/invalid gap = %v", qubo.Gap)
 			}
+
+			// Report when we finally achieved a correct, even if
+			// suboptimal solution, meaning that all valid rows
+			// have lower values than all invalid rows.
 			if qubo.Gap > 0.0 && p.SeparatedGen == -1 {
 				status.Print("All valid rows finally have lower values than all invalid rows!")
 				status.Printf("Running for %d more generations in attempt to increase the valid/invalid gap", p.GapIters)
 				p.SeparatedGen = int(ga.Generations)
 				p.RewardGap = true
 			}
+
+			// Record when we last reported our status.
 			prevBest = bad
 			prevReport = time.Now()
 			return
 		}
+
+		// In the case of no progress, provide a heartbeat message
+		// every 5 seconds so the user knows we're still working.
 		if time.Since(prevReport) > 5*time.Second {
 			status.Printf("Working on generation %d at time %.1fs", ga.Generations, time.Since(startTime).Seconds())
 			prevReport = time.Now()
