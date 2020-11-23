@@ -15,7 +15,7 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-const NearZero = 5e-7 // Close enough to zero to be considered a zero coefficient
+const NearZero = 1e-5 // Close enough to zero to be considered a zero coefficient
 
 // AllPossibleColumns returns a matrix containing all possible columns
 // for a given number of rows that contain only 0s and 1s.

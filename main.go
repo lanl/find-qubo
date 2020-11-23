@@ -73,7 +73,24 @@ func main() {
 	PrepareGAParameters(&p)
 
 	// Try to find coefficients that represent the truth table.
-	qubo, bad, nGen := OptimizeCoeffs(&p)
+	var qubo *QUBO  // Best QUBO found
+	var bad float64 // Badness of the best QUBO
+	var nGen uint   // Number of generations evolved
+	for p.SeparatedGen == -1 {
+		qubo, bad, nGen = OptimizeCoeffs(&p)
+		if p.SeparatedGen == -1 {
+			// We failed to separate valid from invalid rows.  See
+			// if adding an ancillary variable helps.
+			varStr := "variables"
+			if p.NAnc == 1 {
+				varStr = "variable"
+			}
+			status.Printf("Failed to find a solution with %d ancillary %s.", p.NAnc, varStr)
+			status.Printf("Increasing the number of ancillae from %d to %d and restarting the genetic algorithm.", p.NAnc, p.NAnc+1)
+			p.NAnc++
+			PrepareGAParameters(&p)
+		}
+	}
 
 	// Output what we found.
 	fmt.Printf("Total number of generations = %d\n", nGen)
