@@ -23,8 +23,8 @@ type Parameters struct {
 	NAnc         int        // Number of ancilla columns
 	AllCols      *mat.Dense // Matrix with all 2^n columns for n rows
 	Balance      bool       // true=also consider valid-row balance; false=consider only gap
-	ZeroGen      int        // Iteration at which all coefficients dropped to near-zero
-	ZeroGenLen   int        // Number of generations to allow the GA to have all near-zero coefficients
+	ZeroGen      int        // Iteration at which the gapped dropped to near-zero without going below zero
+	ZeroGenLen   int        // Number of generations to allow the GA to have a near-zero gap
 	SeparatedGen int        // Iteration at which invalid and valid rows finally separated
 	MaxGap       float64    // Loose upper bound on the maximum gap
 	GapIters     int        // Number of iterations to perform to increase the valid/invalid gap
@@ -72,8 +72,8 @@ func ParseCommandLine(p *Parameters) {
 	flag.Float64Var(&p.MaxL, "lmax", 1.0, "Maximum linear coefficient")
 	flag.BoolVar(&p.Balance, "balance", false, "Try harder to balance the values of valid rows")
 	flag.IntVar(&p.NAnc, "ancillae", 0, "Number of ancilla columns to add")
-	flag.IntVar(&p.ZeroGenLen, "zero-gen-len", 5000, "Number of generations to allow the GA to remain stuck with all zero coefficients")
-	flag.IntVar(&p.GapIters, "gap-iters", 100000, "Number of extra iterations to perform to increase the valid/invalid gap")
+	flag.IntVar(&p.ZeroGenLen, "zero-gen-len", 5000, "Number of generations to allow the GA to remain stuck with a small but negative invalid-valid gap")
+	flag.IntVar(&p.GapIters, "gap-iters", 100000, "Number of extra iterations to perform to increase the invalid-valid gap")
 	flag.Parse()
 	if flag.NArg() >= 1 {
 		p.TTName = flag.Arg(0)

@@ -85,7 +85,7 @@ func main() {
 			if p.NAnc == 1 {
 				varStr = "variable"
 			}
-			status.Printf("Failed to find a solution with %d ancillary %s.", p.NAnc, varStr)
+			status.Printf("A solution with %d ancillary %s seems unlikely.", p.NAnc, varStr)
 			status.Printf("Increasing the number of ancillae from %d to %d and restarting the genetic algorithm.", p.NAnc, p.NAnc+1)
 			p.NAnc++
 			PrepareGAParameters(&p)
