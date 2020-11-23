@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime"
 	"strings"
 	"time"
 
@@ -495,6 +496,10 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 		MutRate:   0.85,
 		CrossRate: 0.50,
 	}
+	cfg.PopSize = 30
+	cfg.NPops = uint(runtime.NumCPU())
+	cfg.Migrator = eaopt.MigRing{NMigrants: 5}
+	cfg.MigFrequency = 10000
 	prevBest := math.MaxFloat64 // Least badness seen so far
 	startTime := time.Now()     // Current time
 	prevReport := startTime     // Last time we reported our status
@@ -507,8 +512,6 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 			// than once every few seconds.
 			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
 			qubo := hof.Genome.(*QUBO)
-			status.Printf("    Best coefficients = %v", qubo.Coeffs)
-			status.Printf("    Matrix form = %s", qubo.AsOctaveMatrix())
 			if qubo.Gap > 0.0 {
 				status.Printf("    Valid/invalid gap = %v", qubo.Gap)
 			}
