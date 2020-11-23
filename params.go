@@ -23,10 +23,32 @@ type Parameters struct {
 	NAnc         int        // Number of ancilla columns
 	AllCols      *mat.Dense // Matrix with all 2^n columns for n rows
 	Balance      bool       // true=also consider valid-row balance; false=consider only gap
+	ZeroGen      int        // Iteration at which all coefficients dropped to near-zero
+	ZeroGenLen   int        // Number of generations to allow the GA to have all near-zero coefficients
 	SeparatedGen int        // Iteration at which invalid and valid rows finally separated
 	MaxGap       float64    // Loose upper bound on the maximum gap
 	GapIters     int        // Number of iterations to perform to increase the valid/invalid gap
 	RewardGap    bool       // true=reward large valid/invalid gaps (later iterations); false=ignore them (early iterations)
+}
+
+// PrepareGAParameters initializes parameters needed for the next run of the
+// genetic algorithm.
+func PrepareGAParameters(p *Parameters) {
+	// We haven't yet separated valid from invalid rows or encountered
+	// all-zero coefficients.
+	p.SeparatedGen = -1
+	p.ZeroGen = -1
+
+	// Read the input file.
+	tt, nc := ReadTruthTable(p)
+	p.TT = tt
+	p.NCols = nc
+
+	// Precompute a matrix with all possible 0/1 columns.
+	p.AllCols = AllPossibleColumns(p.NCols)
+
+	// Precompute the maximum gap, rounded up to a power of 10.
+	p.MaxGap = findMaxGap(p)
 }
 
 // findMaxGap computes a loose, worst-case estimate of the valid/invalid gap.
@@ -50,6 +72,7 @@ func ParseCommandLine(p *Parameters) {
 	flag.Float64Var(&p.MaxL, "lmax", 1.0, "Maximum linear coefficient")
 	flag.BoolVar(&p.Balance, "balance", false, "Try harder to balance the values of valid rows")
 	flag.IntVar(&p.NAnc, "ancillae", 0, "Number of ancilla columns to add")
+	flag.IntVar(&p.ZeroGenLen, "zero-gen-len", 5000, "Number of generations to allow the GA to remain stuck with all zero coefficients")
 	flag.IntVar(&p.GapIters, "gap-iters", 100000, "Number of extra iterations to perform to increase the valid/invalid gap")
 	flag.Parse()
 	if flag.NArg() >= 1 {
@@ -74,5 +97,7 @@ func ParseCommandLine(p *Parameters) {
 		notify.Fatal("--ancillae must be non-negative")
 	case p.GapIters < 0:
 		notify.Fatal("--gap-iters must be non-negative")
+	case p.ZeroGenLen < 0:
+		notify.Fatal("--zero-gen-len must be non-negative")
 	}
 }

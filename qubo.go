@@ -15,6 +15,8 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
+const NearZero = 5e-7 // Close enough to zero to be considered a zero coefficient
+
 // AllPossibleColumns returns a matrix containing all possible columns
 // for a given number of rows that contain only 0s and 1s.
 func AllPossibleColumns(nr int) *mat.Dense {
@@ -484,6 +486,18 @@ func (q *QUBO) AsOctaveMatrix() string {
 	return "[" + strings.Join(oct, " ; ") + "]"
 }
 
+// AllZero returns true if all QUBO coefficients are near zero.
+func (q *QUBO) AllZero() bool {
+	z := true
+	for _, cf := range q.Coeffs {
+		if math.Abs(cf) > NearZero {
+			z = false
+			break
+		}
+	}
+	return z
+}
+
 // MakeGACallback returns a callback function to be executed after each
 // generation of the genetic algorithm.
 func MakeGACallback(p *Parameters) func(ga *eaopt.GA) {
@@ -510,6 +524,25 @@ func MakeGACallback(p *Parameters) func(ga *eaopt.GA) {
 				status.Printf("Running for %d more generations in attempt to increase the valid/invalid gap", p.GapIters)
 				p.SeparatedGen = int(ga.Generations)
 				p.RewardGap = true
+			}
+
+			// If all coefficients are zero, this implies that the
+			// problem is likely unsolvable given the current
+			// number of ancillary variables.
+			switch {
+			case !qubo.AllZero():
+				// At least one coefficient is non-zero.
+				// Continue executing as normal.
+				p.ZeroGen = -1
+			case p.ZeroGen == -1:
+				// All coefficients just became zero.  Start
+				// the death clock ticking.
+				p.ZeroGen = int(ga.Generations)
+				varStr := "variables"
+				if p.NAnc == 1 {
+					varStr = "variable"
+				}
+				status.Printf("All coefficients are near zero.  The problem may be unsolvable with %d ancillary %s.", p.NAnc, varStr)
 			}
 
 			// Record when we last reported our status.
@@ -545,7 +578,15 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 	cfg.MigFrequency = 10000
 	cfg.Callback = MakeGACallback(p)
 	cfg.EarlyStop = func(ga *eaopt.GA) bool {
-		return p.SeparatedGen >= 0 && int(ga.Generations)-p.SeparatedGen > p.GapIters
+		if p.SeparatedGen >= 0 && int(ga.Generations)-p.SeparatedGen > p.GapIters {
+			// We found a solution and finished optimizing the gap.
+			return true
+		}
+		if p.ZeroGen >= 0 && int(ga.Generations)-p.ZeroGen > p.ZeroGenLen {
+			// A solution appears to be impossible with the current number of ancillae.
+			return true
+		}
+		return false // Keep running.
 	}
 	ga, err := cfg.NewGA()
 	if err != nil {

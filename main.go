@@ -70,18 +70,7 @@ func main() {
 	status = log.New(os.Stderr, "INFO: ", 0)
 	var p Parameters
 	ParseCommandLine(&p)
-	p.SeparatedGen = -1 // We haven't yet separated valid from invalid.
-
-	// Read the input file.
-	tt, nc := ReadTruthTable(&p)
-	p.TT = tt
-	p.NCols = nc
-
-	// Precompute a matrix with all possible 0/1 columns.
-	p.AllCols = AllPossibleColumns(p.NCols)
-
-	// Precompute the maximum gap, rounded up to a power of 10.
-	p.MaxGap = findMaxGap(&p)
+	PrepareGAParameters(&p)
 
 	// Try to find coefficients that represent the truth table.
 	qubo, bad, nGen := OptimizeCoeffs(&p)
