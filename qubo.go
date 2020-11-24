@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/MaxHalford/eaopt"
+	"github.com/lanl/clp"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -223,7 +224,6 @@ func (q *QUBO) SelectValidRows(vals []float64) []bool {
 // Evaluate computes the badness of a set of coefficients.
 func (q *QUBO) Evaluate() (float64, error) {
 	// Find the minimum output across all inputs.
-	p := q.Params
 	vals := q.EvaluateAllInputs()
 	minVal := math.MaxFloat64
 	for _, v := range vals {
@@ -243,40 +243,8 @@ func (q *QUBO) Evaluate() (float64, error) {
 	}
 	q.Gap = minInvalid - maxValid
 
-	// Unless --balance was provided, consider only the gap.
-	if !p.Balance {
-		return -q.Gap, nil
-	}
-
-	// Penalize valid rows in the truth table that produced a non-minimal
-	// value and invalid rows that produced a value better than any valid
-	// row.
-	bad := 0.0
-	wt := float64(len(p.TT)) * math.Max(p.MaxL, p.MaxQ)
-	for r, v := range vals {
-		switch {
-		case isValid[r]:
-			// Valid row: Penalize according to the value's amount
-			// above the global minimal value.
-			bad += math.Pow(v-minVal, 2.0)
-		case v <= maxValid:
-			// Invalid row with a value less than or equal to the
-			// maximum valid value: severely penalize according to
-			// the value's amount below the maximum valid value.
-			bad += (math.Pow(v-maxValid, 2.0) + 1) * wt
-		default:
-			// Invalid row with a value greater than the maximum
-			// valid value: No penalty.
-		}
-	}
-
-	// Add another penalty for small gaps, but only after we've
-	// successfully separated valid from invalid rows.
-	bad = (bad + 1.0) * p.MaxGap
-	if p.RewardGap && minInvalid > maxValid {
-		bad -= minInvalid - maxValid // Reward large gaps.
-	}
-	return bad, nil
+	// Use the negated gap as our badness value.
+	return -q.Gap, nil
 }
 
 // mutateRandomize mutates a single coefficient at random.
@@ -500,25 +468,12 @@ func MakeGACallback(p *Parameters) func(ga *eaopt.GA) {
 			// Report when we have a new least badness but not more
 			// than once every 3 seconds.
 			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
-			qubo := hof.Genome.(*QUBO)
-			if qubo.Gap > 0.0 {
-				status.Printf("    Valid/invalid gap = %v", qubo.Gap)
-			}
-
-			// Report when we finally achieved a correct, even if
-			// suboptimal solution, meaning that all valid rows
-			// have lower values than all invalid rows.
-			if qubo.Gap > 0.0 && p.SeparatedGen == -1 {
-				status.Print("All valid rows finally have lower values than all invalid rows!")
-				status.Printf("Running for %d more generations in attempt to increase the valid/invalid gap", p.GapIters)
-				p.SeparatedGen = int(ga.Generations)
-				p.RewardGap = true
-			}
 
 			// If the gap has been near zero for a long time
 			// without crossing above zero, the problem is likely
 			// unsolvable given the current number of ancillary
 			// variables.
+			qubo := hof.Genome.(*QUBO)
 			switch {
 			case p.ZeroGen == -1 && qubo.Gap <= 0.0 && -qubo.Gap < NearZero:
 				// Small, negative gap: start the death clock
@@ -562,12 +517,15 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 	cfg.MigFrequency = 10000
 	cfg.Callback = MakeGACallback(p)
 	cfg.EarlyStop = func(ga *eaopt.GA) bool {
-		if p.SeparatedGen >= 0 && int(ga.Generations)-p.SeparatedGen > p.GapIters {
-			// We found a solution and finished optimizing the gap.
+		qubo := ga.HallOfFame[0].Genome.(*QUBO)
+		if qubo.Gap > 0.0 {
+			// We found a valid solution, meaning that all valid
+			// rows evaluate to a smaller number than all invalid
+			// rows.
 			return true
 		}
 		if p.ZeroGen >= 0 && int(ga.Generations)-p.ZeroGen > p.ZeroGenLen {
-			// A solution appears to be impossible with the current
+			// A solution appears to be impossible given the current
 			// number of ancillae.
 			return true
 		}
@@ -589,4 +547,130 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 	// Return the best coefficients we found.
 	hof := ga.HallOfFame[0]
 	return hof.Genome.(*QUBO), hof.Fitness, ga.Generations
+}
+
+// LPReoptimize use a linear-programming algorithm to re-optimize a QUBO's
+// coefficients in search of perfect balance of all valid rows.  This method
+// returns a success code.
+func (q *QUBO) LPReoptimize(isValid []bool) bool {
+	// Define multipliers for each linear term's coefficients.  Each
+	// multiplier will be either 0.0 (omitted) or 1.0.
+	p := q.Params
+	mat := clp.NewPackedMatrix()
+	nc := len(q.Coeffs) // Number of coefficients
+	nr := len(p.TT)     // Number of rows
+	for c := 0; c < p.NCols; c++ {
+		// Append one multiplier per truth-table row.
+		cc := p.NCols - c - 1
+		mults := make([]clp.Nonzero, 0, nr/2)
+		for r := 0; r < nr; r++ {
+			if (r>>cc)&1 == 1 {
+				mults = append(mults, clp.Nonzero{
+					Index: r,
+					Value: 1.0,
+				})
+			}
+		}
+
+		// Append the complete column to the matrix.
+		mat.AppendColumn(mults)
+	}
+
+	// Define multipliers for each quadratic term's coefficients.  Each
+	// multiplier will be either 0.0 (omitted) or 1.0.
+	for c1 := 0; c1 < p.NCols-1; c1++ {
+		cc1 := p.NCols - c1 - 1
+		for c2 := c1 + 1; c2 < p.NCols; c2++ {
+			// Append one multiplier per truth-table row.
+			cc2 := p.NCols - c2 - 1
+			mults := make([]clp.Nonzero, 0, nr/2)
+			for r := 0; r < nr; r++ {
+				if (r>>cc1)&1 == 1 && (r>>cc2)&1 == 1 {
+					mults = append(mults, clp.Nonzero{
+						Index: r,
+						Value: 1.0,
+					})
+				}
+			}
+
+			// Append the complete column to the matrix.
+			mat.AppendColumn(mults)
+		}
+	}
+
+	// Append an additional column of -1s for the constant term.  That is,
+	// we want to constrain all valid rows to equal k, for some unknown k.
+	// But because we can't have a variable on the right-hand side (as in
+	// A+B+...+Z = k), we move the variable to the left-hand side (as in
+	// A+B+...+Z-k = 0).
+	mults := make([]clp.Nonzero, nr)
+	for r := 0; r < nr; r++ {
+		mults[r] = clp.Nonzero{
+			Index: r,
+			Value: -1.0,
+		}
+	}
+	mat.AppendColumn(mults)
+
+	// Append an additional column for the gap.  This is -1 for invalid
+	// rows and 0 (omitted) for valid rows.
+	mults = make([]clp.Nonzero, 0, nr)
+	for r := 0; r < nr; r++ {
+		if !isValid[r] {
+			mults = append(mults, clp.Nonzero{
+				Index: r,
+				Value: -1.0,
+			})
+		}
+	}
+	mat.AppendColumn(mults)
+
+	// Bound valid rows to [0, 0] and invalid rows to [epsilon, infinity].
+	rb := make([]clp.Bounds, nr)
+	positive := clp.Bounds{
+		Lower: 1e-30, // Arbitrary small number, much larger than machine epsilon
+		Upper: math.Inf(1),
+	}
+	for r, v := range isValid {
+		if !v {
+			rb[r] = positive
+		}
+	}
+
+	// Bound each variable to its target range.
+	cb := make([]clp.Bounds, nc+2)
+	for c := range cb {
+		switch {
+		case c == nc+1:
+			// Gap
+			cb[c] = positive
+		case c == nc:
+			// Constant
+			cb[c].Lower = math.Inf(-1)
+			cb[c].Upper = math.Inf(1)
+		case c < p.NCols:
+			// Linear
+			cb[c].Lower = p.MinL
+			cb[c].Upper = p.MaxL
+		default:
+			// Quadratic
+			cb[c].Lower = p.MinQ
+			cb[c].Upper = p.MaxQ
+		}
+	}
+
+	// The objective function is the gap, which we want to maximize.
+	obj := make([]float64, nc+2)
+	obj[nc+1] = 1.0
+
+	// Solve the maximization problem.
+	simp := clp.NewSimplex()
+	simp.LoadProblem(mat, cb, obj, rb, nil)
+	simp.SetOptimizationDirection(clp.Maximize)
+	if simp.Primal(clp.NoValuesPass, clp.NoStartFinishOptions) != clp.Optimal {
+		return false
+	}
+	soln := simp.PrimalColumnSolution()
+	copy(q.Coeffs, soln)
+	return true
 }
