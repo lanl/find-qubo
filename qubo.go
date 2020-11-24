@@ -19,35 +19,22 @@ import (
 // NearZero defines a value close enough to zero to be considered a zero gap.
 const NearZero = 1e-5
 
-// AllPossibleColumns returns a matrix containing all possible columns
-// for a given number of rows that contain only 0s and 1s.
-func AllPossibleColumns(nr int) *mat.Dense {
-	nc := 1 << nr
-	all := mat.NewDense(nr, nc, make([]float64, nr*nc))
-	for r := 0; r < nr; r++ {
-		for c := 0; c < nc; c++ {
-			if c&(1<<r) != 0 {
-				all.Set(nr-r-1, c, 1.0)
-			}
-		}
-	}
-	return all
-}
-
 // A QUBO represents a QUBO matrix whose values we're solving for.
 type QUBO struct {
-	Params *Parameters // Pointer to global program parameters
-	Coeffs []float64   // List of linear followed by quadratic coefficients
-	Gap    float64     // Difference in value between the maximum valid row and the minimum invalid row
+	Params  *Parameters    // Pointer to global program parameters
+	Coeffs  []float64      // List of linear followed by quadratic coefficients
+	Gap     float64        // Difference in value between the maximum valid row and the minimum invalid row
+	History map[string]int // Tally of genome modifications made
 }
 
 // NewSPSOQUBO runs a quick particle-swarm optimization to choose initial
 // QUBO coefficients for further genetic-algorithm optimization.
 func NewSPSOQUBO(p *Parameters, rng *rand.Rand) *QUBO {
 	qubo := &QUBO{
-		Params: p,
-		Coeffs: coeffsSPSO(p, rng),
-		Gap:    -math.MaxFloat64,
+		Params:  p,
+		Coeffs:  coeffsSPSO(p, rng),
+		Gap:     -math.MaxFloat64,
+		History: make(map[string]int, 100),
 	}
 	qubo.Rescale() // I'm not sure if SPSO honors the coefficient bounds.
 	return qubo
@@ -56,9 +43,10 @@ func NewSPSOQUBO(p *Parameters, rng *rand.Rand) *QUBO {
 // NewRandomQUBO chooses initial QUBO coefficients at random.
 func NewRandomQUBO(p *Parameters, rng *rand.Rand) *QUBO {
 	qubo := &QUBO{
-		Params: p,
-		Coeffs: coeffsRandom(p, rng, 0.0),
-		Gap:    -math.MaxFloat64,
+		Params:  p,
+		Coeffs:  coeffsRandom(p, rng, 0.0),
+		Gap:     -math.MaxFloat64,
+		History: make(map[string]int, 100),
 	}
 	return qubo
 }
@@ -173,6 +161,21 @@ func coeffsBiased(p *Parameters, rng *rand.Rand) []float64 {
 		}
 	}
 	return cfs
+}
+
+// AllPossibleColumns returns a matrix containing all possible columns
+// for a given number of rows that contain only 0s and 1s.
+func AllPossibleColumns(nr int) *mat.Dense {
+	nc := 1 << nr
+	all := mat.NewDense(nr, nc, make([]float64, nr*nc))
+	for r := 0; r < nr; r++ {
+		for c := 0; c < nc; c++ {
+			if c&(1<<r) != 0 {
+				all.Set(nr-r-1, c, 1.0)
+			}
+		}
+	}
+	return all
 }
 
 // EvaluateAllInputs multiplies the QUBO by each input column in turn (i.e.,
@@ -405,38 +408,73 @@ func (q *QUBO) Mutate(rng *rand.Rand) {
 	case r == 0:
 		// Replace all coefficients (rare).
 		q.mutateReplaceAll(rng)
+		q.History["mutateReplaceAll"]++
 	case r < 5:
 		// Negate a coefficient (fairly rare).
 		q.mutateFlipSign(rng)
+		q.History["mutateFlipSign"]++
 	case r < 5+20:
 		// Copy one coefficient to another.
 		q.mutateCopy(rng)
+		q.History["mutateCopy"]++
 	case r < 5+20+20:
 		// Randomize a single coefficient.
 		q.mutateRandomize(rng)
+		q.History["mutateRandomize"]++
 	case r < 5+20+20+20:
 		// Replace the largest coefficient.
 		q.mutateReplaceLargest(rng)
+		q.History["mutateReplaceLargest"]++
 	default:
 		// Slightly modify a single coefficient.
 		q.mutateNudge(rng)
+		q.History["mutateNudge"]++
 	}
 }
 
 // Crossover randomly blends the coefficients of two QUBOs.
 func (q *QUBO) Crossover(g eaopt.Genome, rng *rand.Rand) {
+	// Merge the two histories.  We use max instead of division to avoid
+	// roughly doubling the values each iteration.
 	q2 := g.(*QUBO)
+	h1 := make(map[string]int, len(q.History)+len(q2.History))
+	h2 := make(map[string]int, len(q.History)+len(q2.History))
+	for k, v := range q.History {
+		h1[k] = v
+	}
+	for k, v := range q2.History {
+		if v > h1[k] {
+			h1[k] = v
+		}
+	}
+	for k, v := range h1 {
+		h2[k] = v
+	}
+	q.History = h1
+	q2.History = h2
+
+	// Cross over the coefficients.
 	eaopt.CrossUniformFloat64(q.Coeffs, q2.Coeffs, rng)
 }
 
 // Clone returns a copy of a QUBO.
 func (q *QUBO) Clone() eaopt.Genome {
+	// Copy the coefficients.
 	cfs := make([]float64, len(q.Coeffs))
 	copy(cfs, q.Coeffs)
+
+	// Copy the history.
+	hist := make(map[string]int, len(q.History))
+	for k, v := range q.History {
+		hist[k] = v
+	}
+
+	// Create and return a copy of the QUBO.
 	return &QUBO{
-		Params: q.Params,
-		Coeffs: cfs,
-		Gap:    q.Gap,
+		Params:  q.Params,
+		Coeffs:  cfs,
+		Gap:     q.Gap,
+		History: hist,
 	}
 }
 
@@ -518,7 +556,6 @@ func MakeGACallback(p *Parameters) func(ga *eaopt.GA) {
 			// Report when we have a new least badness but not more
 			// than once every 3 seconds.
 			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
-			status.Printf("    Coeffs = %v", hof.Genome.(*QUBO).Coeffs) // Temporary
 
 			// If the gap has been near zero for a long time
 			// without crossing above zero, the problem is likely
@@ -593,9 +630,8 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 		// them from particle-swarm optimization.
 		if rng.Intn(10) == 0 {
 			return NewSPSOQUBO(p, rng)
-		} else {
-			return NewRandomQUBO(p, rng)
 		}
+		return NewRandomQUBO(p, rng)
 	})
 	if err != nil {
 		notify.Fatal(err)

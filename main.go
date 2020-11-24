@@ -108,6 +108,14 @@ func main() {
 		PrepareGAParameters(&p)
 	}
 
+	// Report GA statistics.
+	if len(qubo.History) > 0 {
+		status.Print("GA mutation statistics:")
+		for k, v := range qubo.History {
+			status.Printf("    %-20s %10d", k, v)
+		}
+	}
+
 	// Now that we've separated valid from invalid rows, use a
 	// linear-programming solver to ensure valid-row equality and to
 	// maximize the invalid-valid gap.
