@@ -371,6 +371,33 @@ func (q *QUBO) mutateNudge(rng *rand.Rand) {
 	q.Coeffs[c] = cf
 }
 
+// mutateReplaceLargest randomly replaces the largest-in-magnitude coefficient.
+func (q *QUBO) mutateReplaceLargest(rng *rand.Rand) {
+	// Find the largest coefficient.
+	big := 0.0 // Largest magnitude coefficient (absolute value)
+	idx := 0   // Index of the above
+	for i, cf := range q.Coeffs {
+		cf = math.Abs(cf)
+		if cf > big {
+			big = cf
+			idx = i
+		}
+	}
+
+	// Replace the coefficient with a random value, preserving its sign.
+	p := q.Params
+	var r float64
+	if idx < p.NCols {
+		// Linear coefficient
+		r = rng.Float64()*(p.MaxL+p.MinL) - p.MinL
+	} else {
+		// Quadratic coefficient
+		r = rng.Float64()*(p.MaxQ+p.MinQ) - p.MinQ
+	}
+	q.Coeffs[idx] = math.Copysign(r, q.Coeffs[idx])
+	q.Rescale()
+}
+
 // Mutate mutates the QUBO's coefficients.
 func (q *QUBO) Mutate(rng *rand.Rand) {
 	r := rng.Intn(100)
@@ -381,12 +408,15 @@ func (q *QUBO) Mutate(rng *rand.Rand) {
 	case r < 5:
 		// Negate a coefficient (fairly rare).
 		q.mutateFlipSign(rng)
-	case r < 5+30:
+	case r < 5+20:
 		// Copy one coefficient to another.
 		q.mutateCopy(rng)
-	case r < 5+30+20:
+	case r < 5+20+20:
 		// Randomize a single coefficient.
 		q.mutateRandomize(rng)
+	case r < 5+20+20+20:
+		// Replace the largest coefficient.
+		q.mutateReplaceLargest(rng)
 	default:
 		// Slightly modify a single coefficient.
 		q.mutateNudge(rng)
@@ -488,6 +518,7 @@ func MakeGACallback(p *Parameters) func(ga *eaopt.GA) {
 			// Report when we have a new least badness but not more
 			// than once every 3 seconds.
 			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
+			status.Printf("    Coeffs = %v", hof.Genome.(*QUBO).Coeffs) // Temporary
 
 			// If the gap has been near zero for a long time
 			// without crossing above zero, the problem is likely
