@@ -53,6 +53,16 @@ func NewSPSOQUBO(p *Parameters, rng *rand.Rand) *QUBO {
 	return qubo
 }
 
+// NewRandomQUBO chooses initial QUBO coefficients at random.
+func NewRandomQUBO(p *Parameters, rng *rand.Rand) *QUBO {
+	qubo := &QUBO{
+		Params: p,
+		Coeffs: coeffsRandom(p, rng, 0.0),
+		Gap:    -math.MaxFloat64,
+	}
+	return qubo
+}
+
 // coeffsSPSO returns coefficients found from particle-swarm optimization.
 // Empirical results indicate that these are likely to be a decent local
 // minimum.  The function aborts on error.
@@ -538,7 +548,13 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
 
 	// Run the genetic algorithm.
 	err = ga.Minimize(func(rng *rand.Rand) eaopt.Genome {
-		return NewSPSOQUBO(p, rng)
+		// Usually generate coefficients at random, but sometimes get
+		// them from particle-swarm optimization.
+		if rng.Intn(10) == 0 {
+			return NewSPSOQUBO(p, rng)
+		} else {
+			return NewRandomQUBO(p, rng)
+		}
 	})
 	if err != nil {
 		notify.Fatal(err)
