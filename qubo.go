@@ -318,16 +318,16 @@ func (q *QUBO) mutateFlipSign(rng *rand.Rand) {
 	q.Coeffs[c] = -q.Coeffs[c]
 }
 
-// mutateCopy copies one coefficient to another.
+// mutateCopy copies one coefficient to another, optionally doubling one of the
+// values.
 func (q *QUBO) mutateCopy(rng *rand.Rand) {
-	// Select two coefficients at random.
+	// Select two coefficients.
 	nc := len(q.Coeffs)
-	c1 := rng.Intn(nc)
-	c2 := (rng.Intn(nc-1) + c1 + 1) % nc // Different from c1
-
-	// Sometimes replace these with the two nearest coefficients in
-	// magnitude that are not already equal.
-	if rng.Intn(5) == 0 {
+	var c1, c2 int
+	switch rng.Intn(5) {
+	case 0:
+		// Select the two nearest coefficients in magnitude that are
+		// not already equal.
 		closest := math.MaxFloat64
 		for i := 0; i < nc-1; i++ {
 			v1 := math.Abs(q.Coeffs[i])
@@ -341,8 +341,18 @@ func (q *QUBO) mutateCopy(rng *rand.Rand) {
 				}
 			}
 		}
+	default:
+		// Select two coefficients at random.
+		c1 = rng.Intn(nc)
+		c2 = (rng.Intn(nc-1) + c1 + 1) % nc // Different from c1
 	}
-	q.Coeffs[c1] = math.Copysign(q.Coeffs[c2], q.Coeffs[c1]) // Copy only the magnitude.
+
+	// Copy one coefficient to the other either as is or halved in
+	// magnitude.
+	q.Coeffs[c1] = math.Copysign(q.Coeffs[c2], q.Coeffs[c1])
+	if rng.Intn(3) == 0 {
+		q.Coeffs[c1] /= 2.0
+	}
 }
 
 // mutateNudge slightly modifies a single coefficient.
