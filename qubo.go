@@ -97,16 +97,12 @@ func coeffsRandom(p *Parameters, rng *rand.Rand, rt float64) []float64 {
 		}
 	}
 
-	// Optionally round each of them towards zero.
+	// Optionally round each of them.
 	if rt <= 0.0 {
 		return cfs
 	}
 	for i, v := range cfs {
-		if v >= 0.0 {
-			cfs[i] = math.Floor(v/rt) * rt
-		} else {
-			cfs[i] = math.Ceil(v/rt) * rt
-		}
+		cfs[i] = math.Round(v/rt) * rt
 	}
 	return cfs
 }
@@ -272,6 +268,25 @@ func (q *QUBO) Evaluate() (float64, error) {
 			bad += math.Pow(epsilon+v-maxValid, 2.0)
 		}
 	}
+
+	// Penalize max:min ratios that are greater than the number of
+	// coefficients.  We ignore linear coefficients when computing the
+	// max:min ratio because these may legitimately be zero.
+	minMag := math.MaxFloat64
+	maxMag := -math.MaxFloat64
+	p := q.Params
+	for _, cf := range q.Coeffs[p.NCols:] {
+		minMag = math.Min(minMag, math.Abs(cf))
+		maxMag = math.Max(maxMag, math.Abs(cf))
+	}
+	if minMag == maxMag {
+		return math.MaxFloat64, nil
+	}
+	ratio := maxMag / minMag
+	ncf := float64(len(q.Coeffs))
+	if ratio > ncf {
+		bad += math.Pow(ratio-ncf, 2.0)
+	}
 	return bad, nil
 }
 
@@ -288,10 +303,11 @@ func (q *QUBO) mutateRandomize(rng *rand.Rand) {
 	}
 }
 
-// mutateReplaceAll mutates all coefficients at random.
+// mutateReplaceAll mutates all coefficients using any of a variety of schemes.
 func (q *QUBO) mutateReplaceAll(rng *rand.Rand) {
 	// Select a set of coefficients to consider.
 	var cfs []float64
+	var add bool // true=add to existing coefficients; false=replace existing coefficients
 	switch rng.Intn(4) {
 	case 0:
 		// Local minimum found by particle-swarm optimization
@@ -299,6 +315,7 @@ func (q *QUBO) mutateReplaceAll(rng *rand.Rand) {
 	case 1:
 		// Coefficients biased to favor a single row
 		cfs = coeffsBiased(q.Params, rng)
+		add = true
 	case 2:
 		// Coefficients biased to favor two rows
 		cf1 := coeffsBiased(q.Params, rng)
@@ -307,15 +324,28 @@ func (q *QUBO) mutateReplaceAll(rng *rand.Rand) {
 			cf1[i] += v
 		}
 		cfs = cf1
+		add = true
 	case 3:
 		// Completely random coefficients, either rounded or not
 		rtChoices := [...]float64{0.0, 0.03125, 0.0625, 0.125, 0.25, 0.5}
 		rt := rtChoices[rng.Intn(len(rtChoices))]
 		cfs = coeffsRandom(q.Params, rng, rt)
+		if rng.Intn(2) == 0 {
+			add = true
+		}
 	default:
 		panic("Unexpected option in mutateReplaceAll")
 	}
-	q.Coeffs = cfs
+
+	// Either add or replace the existing coefficients.
+	if add {
+		for i, cf := range cfs {
+			q.Coeffs[i] += cf
+		}
+		q.Rescale()
+	} else {
+		q.Coeffs = cfs
+	}
 }
 
 // mutateFlipSign negates a single coefficient at random.
@@ -551,13 +581,26 @@ func MakeGACallback(p *Parameters) func(ga *eaopt.GA) {
 	prevBest := math.MaxFloat64 // Least badness seen so far
 	startTime := time.Now()     // Current time
 	prevReport := startTime     // Last time we reported our status
+	prevLongReport := startTime // Last time we reported additional status
 	return func(ga *eaopt.GA) {
 		hof := ga.HallOfFame[0]
 		bad := hof.Fitness
+		qubo := hof.Genome.(*QUBO)
+		if time.Since(prevLongReport) > 1*time.Minute {
+			// Output additional information once per minute.
+			status.Printf("On generation %d, coefficients = %v", ga.Generations, qubo.Coeffs)
+			mn, mx := math.MaxFloat64, -math.MaxFloat64
+			for _, cf := range qubo.Coeffs {
+				acf := math.Abs(cf)
+				mn = math.Min(mn, acf)
+				mx = math.Max(mx, acf)
+			}
+			status.Printf("    Coefficient range (magnitude) = [%v, %v]", mn, mx)
+			prevLongReport = time.Now()
+		}
 		if bad < prevBest && time.Since(prevReport) > 3*time.Second {
 			// Report when we have a new least badness but not more
 			// than once every 3 seconds.
-			qubo := hof.Genome.(*QUBO)
 			status.Printf("Badness = %.10g (gap = %.1e) after %d generations and %.1fs", bad, qubo.Gap, ga.Generations, ga.Age.Seconds())
 
 			// If the gap has been near zero for a long time
