@@ -36,7 +36,6 @@ func NewSPSOQUBO(p *Parameters, rng *rand.Rand) *QUBO {
 		Gap:     -math.MaxFloat64,
 		History: make(map[string]int, 100),
 	}
-	qubo.Rescale() // I'm not sure if SPSO honors the coefficient bounds.
 	return qubo
 }
 
@@ -317,7 +316,6 @@ func (q *QUBO) mutateReplaceAll(rng *rand.Rand) {
 		panic("Unexpected option in mutateReplaceAll")
 	}
 	q.Coeffs = cfs
-	q.Rescale()
 }
 
 // mutateFlipSign negates a single coefficient at random.
@@ -403,7 +401,6 @@ func (q *QUBO) mutateReplaceLargest(rng *rand.Rand) {
 		r = rng.Float64()*(p.MaxQ+p.MinQ) - p.MinQ
 	}
 	q.Coeffs[idx] = math.Copysign(r, q.Coeffs[idx])
-	q.Rescale()
 }
 
 // Mutate mutates the QUBO's coefficients.
@@ -560,13 +557,13 @@ func MakeGACallback(p *Parameters) func(ga *eaopt.GA) {
 		if bad < prevBest && time.Since(prevReport) > 3*time.Second {
 			// Report when we have a new least badness but not more
 			// than once every 3 seconds.
-			status.Printf("Least badness = %.10g after %d generations and %.1fs", bad, ga.Generations, ga.Age.Seconds())
+			qubo := hof.Genome.(*QUBO)
+			status.Printf("Badness = %.10g (gap = %.1e) after %d generations and %.1fs", bad, qubo.Gap, ga.Generations, ga.Age.Seconds())
 
 			// If the gap has been near zero for a long time
 			// without crossing above zero, the problem is likely
 			// unsolvable given the current number of ancillary
 			// variables.
-			qubo := hof.Genome.(*QUBO)
 			switch {
 			case p.ZeroGen == -1 && qubo.Gap <= 0.0 && -qubo.Gap < NearZero:
 				// Small, negative gap: start the death clock
