@@ -61,11 +61,17 @@ func coeffsSPSO(p *Parameters, rng *rand.Rand) []float64 {
 	}
 	spso.Min = math.Max(p.MinL, p.MinQ)
 	spso.Max = math.Min(p.MaxL, p.MaxQ)
-	cfs, _, err := spso.Minimize(func(cfs []float64) float64 {
+	bestCfs, _, err := spso.Minimize(func(cfs []float64) float64 {
+		if math.IsNaN(cfs[0]) {
+			// I don't know how we could have gotten here, but I
+			// have seen an array of NaNs passed in.
+			return math.MaxFloat64
+		}
 		qubo := &QUBO{
-			Params: p,
-			Coeffs: cfs,
-			Gap:    -math.MaxFloat64,
+			Params:  p,
+			Coeffs:  cfs,
+			Gap:     -math.MaxFloat64,
+			History: make(map[string]int, 100),
 		}
 		bad, _ := qubo.Evaluate()
 		return bad
@@ -73,7 +79,7 @@ func coeffsSPSO(p *Parameters, rng *rand.Rand) []float64 {
 	if err != nil {
 		notify.Fatal(err)
 	}
-	return cfs
+	return bestCfs
 }
 
 // coeffsRandom returns a completely random set of coefficients, optionally
@@ -256,8 +262,18 @@ func (q *QUBO) Evaluate() (float64, error) {
 	}
 	q.Gap = minInvalid - maxValid
 
-	// Use the negated gap as our badness value.
-	return -q.Gap, nil
+	// Penalize misordered rows.
+	bad := 0.0
+	for r, v := range vals {
+		const epsilon = 1e-5 // Small amount to add to discourage all-zero coefficients
+		switch {
+		case isValid[r] && v >= minInvalid:
+			bad += math.Pow(epsilon+v-minInvalid, 2.0)
+		case !isValid[r] && v <= maxValid:
+			bad += math.Pow(epsilon+v-maxValid, 2.0)
+		}
+	}
+	return bad, nil
 }
 
 // mutateRandomize mutates a single coefficient at random.
@@ -300,18 +316,7 @@ func (q *QUBO) mutateReplaceAll(rng *rand.Rand) {
 	default:
 		panic("Unexpected option in mutateReplaceAll")
 	}
-
-	// Decide randomly whether to add or set the coefficients we just
-	// defined.
-	if rng.Intn(2) == 0 {
-		// Set
-		q.Coeffs = cfs
-	} else {
-		// Add
-		for i, v := range cfs {
-			q.Coeffs[i] += v
-		}
-	}
+	q.Coeffs = cfs
 	q.Rescale()
 }
 
