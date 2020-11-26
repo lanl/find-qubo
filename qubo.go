@@ -19,7 +19,6 @@ const NearZero = 1e-5
 type QUBO struct {
 	Params *Parameters // Pointer to global program parameters
 	Coeffs []float64   // List of linear followed by quadratic coefficients
-	Gap    float64     // Difference in value between the maximum valid row and the minimum invalid row
 }
 
 // QUBOFactory produces all QUBOs we care about in turn.  It returns in turn
@@ -31,11 +30,12 @@ func QUBOFactory(p *Parameters) chan *QUBO {
 
 	// Produce QUBOs in the background.
 	go func() {
-		// Iterate over increasing values of c on the assumption that
+		// Iterate over increasing values of c on the hypothesis that
 		// small values will suffice in most cases.
-		nc := p.NCols
-		icfs := make([]int, (nc*(nc+1))/2)
-		for c := 1; c <= nc; c++ {
+		nc := p.NCols               // Number of columns
+		ncfs := (nc * (nc + 1)) / 2 // Number of coefficience
+		icfs := make([]int, ncfs)
+		for c := 1; c <= ncfs; c++ {
 			// Create a channel on which to receive coefficient
 			// lists.
 			cch := make(chan []int, nc)
@@ -51,17 +51,15 @@ func QUBOFactory(p *Parameters) chan *QUBO {
 			for cf := range cch {
 				// Divide each integer by nc to produce a
 				// floating-point coefficient.
-				ncf := float64(nc)
-				cfs := make([]float64, (nc*(nc+1))/2)
+				cfs := make([]float64, ncfs)
 				for i, c := range cf {
-					cfs[i] = float64(c) / ncf
+					cfs[i] = float64(c) / float64(ncfs)
 				}
 
 				// Create a QUBO and send it down the channel.
 				qch <- &QUBO{
 					Params: p,
 					Coeffs: cfs,
-					Gap:    -math.MaxFloat64,
 				}
 			}
 		}
@@ -173,99 +171,6 @@ func (q *QUBO) SelectValidRows(vals []float64) []bool {
 		valids[vRow] = true
 	}
 	return valids
-}
-
-// Evaluate computes the badness of a set of coefficients.
-func (q *QUBO) Evaluate() (float64, error) {
-	// Find the minimum output across all inputs.
-	vals := q.EvaluateAllInputs()
-	minVal := math.MaxFloat64
-	for _, v := range vals {
-		minVal = math.Min(minVal, v)
-	}
-
-	// Find the maximum valid output and the minimum invalid output.
-	maxValid := -math.MaxFloat64
-	minInvalid := math.MaxFloat64
-	isValid := q.SelectValidRows(vals)
-	for r, v := range vals {
-		if isValid[r] {
-			maxValid = math.Max(maxValid, v)
-		} else {
-			minInvalid = math.Min(minInvalid, v)
-		}
-	}
-	q.Gap = minInvalid - maxValid
-
-	// Penalize misordered rows.
-	bad := 0.0
-	for r, v := range vals {
-		const epsilon = 1e-5 // Small amount to add to discourage all-zero coefficients
-		switch {
-		case isValid[r] && v >= minInvalid:
-			bad += math.Pow(epsilon+v-minInvalid, 2.0)
-		case !isValid[r] && v <= maxValid:
-			bad += math.Pow(epsilon+v-maxValid, 2.0)
-		}
-	}
-
-	// Penalize max:min ratios that are greater than the number of
-	// coefficients.  We ignore linear coefficients when computing the
-	// max:min ratio because these may legitimately be zero.
-	minMag := math.MaxFloat64
-	maxMag := -math.MaxFloat64
-	p := q.Params
-	for _, cf := range q.Coeffs[p.NCols:] {
-		minMag = math.Min(minMag, math.Abs(cf))
-		maxMag = math.Max(maxMag, math.Abs(cf))
-	}
-	if minMag == maxMag {
-		return math.MaxFloat64, nil
-	}
-	ratio := maxMag / minMag
-	ncf := float64(len(q.Coeffs))
-	if ratio > ncf {
-		bad += math.Pow(ratio-ncf, 2.0)
-	}
-	return bad, nil
-}
-
-// Rescale scales all coefficients so the maximum is as large as possible.
-func (q *QUBO) Rescale() {
-	// Find the maximal linear term.
-	p := q.Params
-	nc := p.NCols
-	maxLin := -math.MaxFloat64
-	for i := 0; i < nc; i++ {
-		maxLin = math.Max(maxLin, math.Abs(q.Coeffs[i]))
-	}
-
-	// Find the maximal quadratic term.
-	maxQuad := -math.MaxFloat64
-	for i := nc; i < len(q.Coeffs); i++ {
-		maxQuad = math.Max(maxQuad, math.Abs(q.Coeffs[i]))
-	}
-
-	// Scale all coefficients equally.
-	maxL := math.Min(p.MaxL, -p.MinL)
-	maxQ := math.Min(p.MaxQ, -p.MinQ)
-	var scale float64
-	switch {
-	case maxLin == 0.0 && maxQuad == 0.0:
-		// Both maxima are zero.
-	case maxLin == 0.0:
-		// All linear coefficients are zero.
-		scale = maxQ / maxQuad
-	case maxQuad == 0.0:
-		// All quadratic coefficients are zero.
-		scale = maxL / maxLin
-	default:
-		// Common case: Neither maximum is zero.
-		scale = math.Min(maxL/maxLin, maxQ/maxQuad)
-	}
-	for i := range q.Coeffs {
-		q.Coeffs[i] *= scale
-	}
 }
 
 // AsOctaveMatrix returns the coefficients as a string that can be pasted into

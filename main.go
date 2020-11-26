@@ -88,7 +88,6 @@ func main() {
 	// Output what we found.
 	status.Printf("Total program run time: %v", time.Since(startTime))
 	fmt.Printf("Final coefficients = %v\n", q.Coeffs)
-	fmt.Printf("Final valid/invalid gap = %v\n", q.Gap)
 	fmt.Printf("Matrix form = %v\n", q.AsOctaveMatrix())
 	outputEvaluation(&p, isValid, vals)
 }
