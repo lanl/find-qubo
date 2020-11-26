@@ -376,6 +376,12 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 		}
 		vals = q.EvaluateAllInputs()    // Recompute the values now that we have new coefficients.
 		gap = ComputeGap(vals, isValid) // Recompute the gap, too.
+		if gap <= 0.0 {
+			// False alarm.  The LP solver thinks it solved the
+			// problem, but this was in fact a bogus solution
+			// caused by numerical imprecision.
+			continue
+		}
 		return q, gap, vals, isValid
 	}
 	return nil, 0.0, nil, nil
