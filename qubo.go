@@ -326,9 +326,25 @@ func (q *QUBO) LPReoptimize(isValid []bool) bool {
 	return true
 }
 
+// ComputeGap returns the difference between the minimum invalid and maximum
+// valid rows.  A positive difference indicates a correct solution; a
+// non-positive difference indicates an incorrect solution.
+func ComputeGap(vals []float64, isValid []bool) float64 {
+	minInvalid, maxValid := math.MaxFloat64, -math.MaxFloat64
+	for r, v := range vals {
+		if isValid[r] {
+			maxValid = math.Max(maxValid, v)
+		} else {
+			minInvalid = math.Min(minInvalid, v)
+		}
+	}
+	return minInvalid - maxValid
+}
+
 // OptimizeCoeffs tries to find the coefficients that best represent the given
-// truth table.  It aborts on error.
-func OptimizeCoeffs(p *Parameters) (*QUBO, []float64, []bool) {
+// truth table.  It returns the QUBO, invalid-valid gap, row values, and row
+// validity indicators.  The function aborts on error.
+func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 	// Consider a large number of coefficients in turn.
 	qch := QUBOFactory(p)
 	for q := range qch {
@@ -344,22 +360,23 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, []float64, []bool) {
 
 		// Ensure that all valid rows have a value less than that of
 		// any invalid row.
-		minInvalid, maxValid := math.MaxFloat64, -math.MaxFloat64
-		for r, v := range vals {
-			if isValid[r] {
-				maxValid = math.Max(maxValid, v)
-			} else {
-				minInvalid = math.Min(minInvalid, v)
-			}
-		}
-		if maxValid >= minInvalid {
+		gap := ComputeGap(vals, isValid)
+		if gap >= 0.0 {
 			// The valid and invalid rows overlap.  Continue with
 			// the next QUBO.
 			continue
 		}
 
-		// TODO: Run an LP solver.
-		return q, vals, isValid
+		// At this point we have a correct QUBO but one that ignored
+		// the bounds imposed on the coefficients.  We run an LP solver
+		// both to enforce coefficient bounds and to maximize the gap
+		// between valid and invalid rows.
+		if !q.LPReoptimize(isValid) {
+			notify.Fatal("The LP solver failed to optimize the QUBO coefficients")
+		}
+		vals = q.EvaluateAllInputs()    // Recompute the values now that we have new coefficients.
+		gap = ComputeGap(vals, isValid) // Recompute the gap, too.
+		return q, gap, vals, isValid
 	}
-	return nil, nil, nil
+	return nil, 0.0, nil, nil
 }

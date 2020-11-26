@@ -80,7 +80,7 @@ func main() {
 	p.AllCols = AllPossibleColumns(p.NCols)
 
 	// Find the best QUBO we can.
-	q, vals, isValid := OptimizeCoeffs(&p)
+	q, gap, vals, isValid := OptimizeCoeffs(&p)
 	if q == nil {
 		// TODO: Increase the number of ancillae and try again.
 		notify.Fatal("No solution was found.")
@@ -88,7 +88,8 @@ func main() {
 
 	// Output what we found.
 	status.Printf("Total program run time: %v", time.Since(startTime))
-	fmt.Printf("Final coefficients = %v\n", q.Coeffs)
+	fmt.Printf("Gap = %v\n", gap)
+	fmt.Printf("Coefficients = %v\n", q.Coeffs)
 	fmt.Printf("Matrix form = %v\n", q.AsOctaveMatrix())
 	outputEvaluation(&p, isValid, vals)
 }
