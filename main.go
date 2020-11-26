@@ -80,10 +80,11 @@ func main() {
 	PrepareGAParameters(&p)
 
 	// Find the best QUBO we can.
-	q := OptimizeCoeffs(&p)
-	return // Temporary
-	vals := q.EvaluateAllInputs()
-	isValid := q.SelectValidRows(vals)
+	q, vals, isValid := OptimizeCoeffs(&p)
+	if q == nil {
+		// TODO: Increase the number of ancillae and try again.
+		notify.Fatal("No solution was found.")
+	}
 
 	// Output what we found.
 	status.Printf("Total program run time: %v", time.Since(startTime))

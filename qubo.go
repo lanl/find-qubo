@@ -146,8 +146,8 @@ func (q *QUBO) EvaluateAllInputs() []float64 {
 	return vals
 }
 
-// SelectValidRows is a helper function for Evaluate that selects at most one
-// row in each batch of 2^a (with a ancillae) to treat as valid.
+// SelectValidRows selects at most one row in each batch of 2^a (with
+// a ancillae) to treat as valid.
 func (q *QUBO) SelectValidRows(vals []float64) []bool {
 	// Iterate over each base row (i.e., rows if there were no ancillae).
 	p := q.Params
@@ -328,11 +328,38 @@ func (q *QUBO) LPReoptimize(isValid []bool) bool {
 
 // OptimizeCoeffs tries to find the coefficients that best represent the given
 // truth table.  It aborts on error.
-func OptimizeCoeffs(p *Parameters) *QUBO {
-	// Temporary
+func OptimizeCoeffs(p *Parameters) (*QUBO, []float64, []bool) {
+	// Consider a large number of coefficients in turn.
 	qch := QUBOFactory(p)
 	for q := range qch {
-		status.Printf("QUBO = %v", q)
+		// Evaluate x'*Q*x for all binary x to produce a
+		// vector of values.
+		vals := q.EvaluateAllInputs()
+
+		// Given the vector of values, select the smallest of each
+		// batch of equally acceptable valid rows (i.e., same truth
+		// table but different ancillae) to treat as valid and mark the
+		// remaining rows as invalid.
+		isValid := q.SelectValidRows(vals)
+
+		// Ensure that all valid rows have a value less than that of
+		// any invalid row.
+		minInvalid, maxValid := math.MaxFloat64, -math.MaxFloat64
+		for r, v := range vals {
+			if isValid[r] {
+				maxValid = math.Max(maxValid, v)
+			} else {
+				minInvalid = math.Min(minInvalid, v)
+			}
+		}
+		if maxValid >= minInvalid {
+			// The valid and invalid rows overlap.  Continue with
+			// the next QUBO.
+			continue
+		}
+
+		// TODO: Run an LP solver.
+		return q, vals, isValid
 	}
-	return nil
+	return nil, nil, nil
 }
