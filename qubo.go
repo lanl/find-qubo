@@ -36,6 +36,9 @@ func QUBOFactory(p *Parameters) chan *QUBO {
 		ncfs := (nc * (nc + 1)) / 2 // Number of coefficience
 		icfs := make([]int, ncfs)
 		for c := 1; c <= ncfs; c++ {
+			// Report our progress.
+			status.Printf("Beginning attempt %d of %d", c, ncfs)
+
 			// Create a channel on which to receive coefficient
 			// lists.
 			cch := make(chan []int, nc)

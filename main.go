@@ -41,7 +41,7 @@ func outputEvaluation(p *Parameters, isValid []bool, eval []float64) {
 	}
 
 	// Output each input string, output value, and rank.
-	status.Print("Complete evaluation:")
+	fmt.Println("Complete evaluation:")
 	digits := len(fmt.Sprintf("%d", len(eval)+1))
 	for i, v := range eval {
 		// Set validMark to "*" for valid rows, " " for invalid rows.
@@ -87,7 +87,7 @@ func main() {
 	}
 
 	// Output what we found.
-	status.Printf("Total program run time: %v", time.Since(startTime))
+	fmt.Printf("Execution time: %v\n", time.Since(startTime))
 	fmt.Printf("Gap = %v\n", gap)
 	fmt.Printf("Coefficients = %v\n", q.Coeffs)
 	fmt.Printf("Matrix form = %v\n", q.AsOctaveMatrix())
