@@ -72,17 +72,18 @@ func QUBOFactory(p *Parameters) chan *QUBO {
 // randomCoeffs returns an given number of slices with coefficients
 // in the range [-ncfs, ncfs].
 func randomCoeffs(n, ncfs int, ch chan []int) {
-	// Instead of always using the range [-nc, nc], use [-c, c] for a
-	// Zipf-distributed c<nc.
+	// Choose numbers in the range [-ncfs, ncfs] but biased towards numbers
+	// with smaller magnitudes, except 0, which is used rarely.
 	rng := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
-	zipf := rand.NewZipf(rng, 2.0, 3.0, uint64(ncfs)-1)
+	zipf := rand.NewZipf(rng, 2.0, 3.0, 2*uint64(ncfs))
 
 	// Generate the given number of random coefficient sets.
 	for i := 0; i < n; i++ {
-		c := int(zipf.Uint64() + 1)
 		cfs := make([]int, ncfs)
 		for j := range cfs {
-			cfs[j] = rng.Intn(2*c+1) - c
+			z := int(zipf.Uint64()) // {0, 1, 2, ..., 2*ncfs+1}
+			z1 := z + 1
+			cfs[j] = (z1*(z1%2) - z1/2) % (ncfs + 1) // {1, -1, 2, -2, ..., ncfs, -ncfs, 0}
 		}
 		ch <- cfs
 	}
