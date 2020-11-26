@@ -385,8 +385,18 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 		if !q.LPReoptimize(isValid) {
 			notify.Fatal("The LP solver failed to optimize the QUBO coefficients")
 		}
-		vals = q.EvaluateAllInputs()    // Recompute the values now that we have new coefficients.
-		gap := ComputeGap(vals, isValid) // Recompute the gap.
+
+		// Round the coefficients if asked to.
+		rt := p.RoundTo
+		if rt > 0.0 {
+			for i, cf := range q.Coeffs {
+				q.Coeffs[i] = math.Round(cf/rt) * rt
+			}
+		}
+
+		// Recompute the row values and gap.
+		vals = q.EvaluateAllInputs()
+		gap := ComputeGap(vals, isValid)
 		if gap <= 0.0 {
 			// False alarm.  The LP solver thinks it solved the
 			// problem, but this was in fact a bogus solution

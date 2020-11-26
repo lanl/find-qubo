@@ -21,6 +21,7 @@ type Parameters struct {
 	NCols   int        // Number of columns in the truth table, including ancillae
 	NAnc    int        // Number of ancilla columns
 	NRands  int        // Number of coefficient sets to generate per range of coefficient values
+	RoundTo float64    // Value to which to round all coefficients
 	AllCols *mat.Dense // Matrix with all 2^n columns for n rows
 }
 
@@ -37,6 +38,7 @@ func ParseCommandLine(p *Parameters) {
 	flag.Float64Var(&p.MaxL, "lmax", 1.0, "Maximum linear coefficient")
 	flag.IntVar(&p.NAnc, "ancillae", 0, "Initial number of ancilla columns to add")
 	flag.IntVar(&p.NRands, "trials", 1000, "Number of random coefficient sets to generate per range of coefficient values")
+	flag.Float64Var(&p.RoundTo, "round", 0, "Value to which to round coefficients or 0 for no rounding")
 	flag.Parse()
 	if flag.NArg() >= 1 {
 		p.TTName = flag.Arg(0)
@@ -60,5 +62,7 @@ func ParseCommandLine(p *Parameters) {
 		notify.Fatal("--ancillae must be non-negative")
 	case p.NRands <= 0:
 		notify.Fatal("--trials must be positive")
+	case p.RoundTo < 0.0:
+		notify.Fatal("--round must be non-negative")
 	}
 }
