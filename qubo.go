@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/lanl/clp"
+	"github.com/schollz/progressbar/v3"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -351,8 +353,17 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 	seen := make(map[checksum]struct{})
 
 	// Consider a large number of coefficients in turn.
+	bar := progressbar.NewOptions(p.NRands,
+		progressbar.OptionSetWriter(os.Stderr),
+		progressbar.OptionFullWidth(),
+		progressbar.OptionThrottle(time.Second),
+		progressbar.OptionClearOnFinish())
+	defer bar.Clear()
 	qch := QUBOFactory(p)
 	for q := range qch {
+		// Update the progress bar.
+		bar.Add(1)
+
 		// Evaluate x'*Q*x for all binary x to produce a
 		// vector of values.
 		vals := q.EvaluateAllInputs()
