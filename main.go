@@ -76,8 +76,8 @@ func main() {
 	// Read the input file.
 	p.TT, p.NCols = ReadTruthTable(&p)
 
-	// Set the remaining parameters.
-	PrepareGAParameters(&p)
+	// Precompute a matrix with all possible 0/1 columns.
+	p.AllCols = AllPossibleColumns(p.NCols)
 
 	// Find the best QUBO we can.
 	q, vals, isValid := OptimizeCoeffs(&p)
