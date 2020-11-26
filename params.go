@@ -20,6 +20,7 @@ type Parameters struct {
 	TT      TruthTable // The truth-table proper
 	NCols   int        // Number of columns in the truth table, including ancillae
 	NAnc    int        // Number of ancilla columns
+	NRands  int        // Number of coefficient sets to generate per range of coefficient values
 	AllCols *mat.Dense // Matrix with all 2^n columns for n rows
 }
 
@@ -35,6 +36,7 @@ func ParseCommandLine(p *Parameters) {
 	flag.Float64Var(&p.MinL, "lmin", -1.0, "Minimum linear coefficient")
 	flag.Float64Var(&p.MaxL, "lmax", 1.0, "Maximum linear coefficient")
 	flag.IntVar(&p.NAnc, "ancillae", 0, "Initial number of ancilla columns to add")
+	flag.IntVar(&p.NRands, "trials", 1000, "Number of random coefficient sets to generate per range of coefficient values")
 	flag.Parse()
 	if flag.NArg() >= 1 {
 		p.TTName = flag.Arg(0)
@@ -56,5 +58,7 @@ func ParseCommandLine(p *Parameters) {
 		notify.Fatal("--qmax must be positive")
 	case p.NAnc < 0:
 		notify.Fatal("--ancillae must be non-negative")
+	case p.NRands <= 0:
+		notify.Fatal("--trials must be positive")
 	}
 }

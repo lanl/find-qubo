@@ -47,7 +47,7 @@ func QUBOFactory(p *Parameters) chan *QUBO {
 
 			// Create coefficient lists in the background.
 			go func() {
-				randomCoeffs(icfs, 10000, c, cch)
+				randomCoeffs(icfs, p.NRands, c, cch)
 			}()
 
 			// In the foreground (of a background goroutine), pack
