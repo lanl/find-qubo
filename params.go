@@ -37,7 +37,7 @@ func ParseCommandLine(p *Parameters) {
 	flag.Float64Var(&p.MinL, "lmin", -1.0, "Minimum linear coefficient")
 	flag.Float64Var(&p.MaxL, "lmax", 1.0, "Maximum linear coefficient")
 	flag.IntVar(&p.NAnc, "ancillae", 0, "Initial number of ancilla columns to add")
-	flag.IntVar(&p.NRands, "trials", 1000, "Number of random coefficient sets to generate per range of coefficient values")
+	flag.IntVar(&p.NRands, "nrands", 1000, "Number of random coefficient sets to generate")
 	flag.Float64Var(&p.RoundTo, "round", 0, "Value to which to round coefficients or 0 for no rounding")
 	flag.Parse()
 	if flag.NArg() >= 1 {
@@ -61,7 +61,7 @@ func ParseCommandLine(p *Parameters) {
 	case p.NAnc < 0:
 		notify.Fatal("--ancillae must be non-negative")
 	case p.NRands <= 0:
-		notify.Fatal("--trials must be positive")
+		notify.Fatal("--nrands must be positive")
 	case p.RoundTo < 0.0:
 		notify.Fatal("--round must be non-negative")
 	}

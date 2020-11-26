@@ -35,37 +35,28 @@ func QUBOFactory(p *Parameters) chan *QUBO {
 		// Iterate over increasing values of c on the hypothesis that
 		// small values will suffice in most cases.
 		nc := p.NCols               // Number of columns
-		ncfs := (nc * (nc + 1)) / 2 // Number of coefficience
-		icfs := make([]int, ncfs)
-		for c := 1; c <= ncfs; c++ {
-			// Report our progress.
-			status.Printf("Beginning attempt %d of %d", c, ncfs)
+		ncfs := (nc * (nc + 1)) / 2 // Number of coefficients
+		cch := make(chan []int, nc) // Channel on which to receive coefficient lists.
 
-			// Create a channel on which to receive coefficient
-			// lists.
-			cch := make(chan []int, nc)
+		// Create coefficient lists in the background.
+		go func() {
+			randomCoeffs(p.NRands, ncfs, cch)
+		}()
 
-			// Create coefficient lists in the background.
-			go func() {
-				randomCoeffs(icfs, p.NRands, c, cch)
-			}()
+		// In the foreground (of a background goroutine), pack
+		// coefficient lists into QUBOs for the caller's convenience.
+		for cf := range cch {
+			// Divide each integer by nc to produce a
+			// floating-point coefficient.
+			cfs := make([]float64, ncfs)
+			for i, c := range cf {
+				cfs[i] = float64(c) / float64(ncfs)
+			}
 
-			// In the foreground (of a background goroutine), pack
-			// coefficient lists into QUBOs for the caller's
-			// convenience.
-			for cf := range cch {
-				// Divide each integer by nc to produce a
-				// floating-point coefficient.
-				cfs := make([]float64, ncfs)
-				for i, c := range cf {
-					cfs[i] = float64(c) / float64(ncfs)
-				}
-
-				// Create a QUBO and send it down the channel.
-				qch <- &QUBO{
-					Params: p,
-					Coeffs: cfs,
-				}
+			// Create a QUBO and send it down the channel.
+			qch <- &QUBO{
+				Params: p,
+				Coeffs: cfs,
 			}
 		}
 		close(qch)
@@ -75,49 +66,22 @@ func QUBOFactory(p *Parameters) chan *QUBO {
 	return qch
 }
 
-// allCoeffs returns all possible slices with coefficients in the range
-// [-c, c], starting with values of smallest magnitude.
-func allCoeffs(cfs []int, i, c int, ch chan []int) {
-	// Recursively fill in elements of cfs until none remain.
-	if i == len(cfs) {
-		// Ensure that at least one coefficient is equal to s.
-		ok := false
-		for _, cf := range cfs {
-			if cf == c || cf == -c {
-				ok = true
-				break
-			}
-		}
-		if !ok {
-			return
-		}
-
-		// Send the completed coefficient list into the channel.
-		coeffs := make([]int, i)
-		copy(coeffs, cfs)
-		ch <- coeffs
-		return
-	}
-	for j := 0; j < 2*c+1; j++ {
-		cfs[i] = j*(j%2) - j/2 // {0, 1, -1, 2, -2, ...}
-		allCoeffs(cfs, i+1, c, ch)
-	}
-	if i == 0 {
-		close(ch)
-	}
-}
-
 // randomCoeffs returns an given number of slices with coefficients
-// in the range [-c, c].
-func randomCoeffs(cfs []int, n, c int, ch chan []int) {
+// in the range [-ncfs, ncfs].
+func randomCoeffs(n, ncfs int, ch chan []int) {
+	// Instead of always using the range [-nc, nc], use [-c, c] for a
+	// Zipf-distributed c<nc.
 	rng := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
+	zipf := rand.NewZipf(rng, 2.0, 3.0, uint64(ncfs)-1)
+
+	// Generate the given number of random coefficient sets.
 	for i := 0; i < n; i++ {
-		coeffs := make([]int, len(cfs))
-		copy(coeffs, cfs)
-		for j := range coeffs {
-			coeffs[j] = rng.Intn(2*c+1) - c
+		c := int(zipf.Uint64() + 1)
+		cfs := make([]int, ncfs)
+		for j := range cfs {
+			cfs[j] = rng.Intn(2*c+1) - c
 		}
-		ch <- coeffs
+		ch <- cfs
 	}
 	close(ch)
 }
