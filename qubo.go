@@ -6,12 +6,8 @@ package main
 import (
 	"fmt"
 	"math"
-	"math/rand"
-	"runtime"
 	"strings"
-	"time"
 
-	"github.com/MaxHalford/eaopt"
 	"github.com/lanl/clp"
 	"gonum.org/v1/gonum/mat"
 )
@@ -21,147 +17,91 @@ const NearZero = 1e-5
 
 // A QUBO represents a QUBO matrix whose values we're solving for.
 type QUBO struct {
-	Params  *Parameters    // Pointer to global program parameters
-	Coeffs  []float64      // List of linear followed by quadratic coefficients
-	Gap     float64        // Difference in value between the maximum valid row and the minimum invalid row
-	History map[string]int // Tally of genome modifications made
+	Params *Parameters // Pointer to global program parameters
+	Coeffs []float64   // List of linear followed by quadratic coefficients
+	Gap    float64     // Difference in value between the maximum valid row and the minimum invalid row
 }
 
-// NewSPSOQUBO runs a quick particle-swarm optimization to choose initial
-// QUBO coefficients for further genetic-algorithm optimization.
-func NewSPSOQUBO(p *Parameters, rng *rand.Rand) *QUBO {
-	qubo := &QUBO{
-		Params:  p,
-		Coeffs:  coeffsSPSO(p, rng),
-		Gap:     -math.MaxFloat64,
-		History: make(map[string]int, 100),
-	}
-	return qubo
-}
+// QUBOFactory produces all QUBOs we care about in turn.  It returns in turn
+// each QUBO with coefficients of the form n/c for n∈[-c, c] and c being the
+// number of coefficients.
+func QUBOFactory(p *Parameters) chan *QUBO {
+	// Create a QUBO channel on which to send complete QUBOs.
+	qch := make(chan *QUBO, 16)
 
-// NewRandomQUBO chooses initial QUBO coefficients at random.
-func NewRandomQUBO(p *Parameters, rng *rand.Rand) *QUBO {
-	qubo := &QUBO{
-		Params:  p,
-		Coeffs:  coeffsRandom(p, rng, 0.0),
-		Gap:     -math.MaxFloat64,
-		History: make(map[string]int, 100),
-	}
-	return qubo
-}
+	// Produce QUBOs in the background.
+	go func() {
+		// Iterate over increasing values of c on the assumption that
+		// small values will suffice in most cases.
+		nc := p.NCols
+		icfs := make([]int, (nc*(nc+1))/2)
+		for c := 1; c <= nc; c++ {
+			// Create a channel on which to receive coefficient
+			// lists.
+			cch := make(chan []int, nc)
 
-// coeffsSPSO returns coefficients found from particle-swarm optimization.
-// Empirical results indicate that these are likely to be a decent local
-// minimum.  The function aborts on error.
-func coeffsSPSO(p *Parameters, rng *rand.Rand) []float64 {
-	spso, err := eaopt.NewDefaultSPSO()
-	if err != nil {
-		notify.Fatal(err)
-	}
-	spso.Min = math.Max(p.MinL, p.MinQ)
-	spso.Max = math.Min(p.MaxL, p.MaxQ)
-	bestCfs, _, err := spso.Minimize(func(cfs []float64) float64 {
-		if math.IsNaN(cfs[0]) {
-			// I don't know how we could have gotten here, but I
-			// have seen an array of NaNs passed in.
-			return math.MaxFloat64
-		}
-		qubo := &QUBO{
-			Params:  p,
-			Coeffs:  cfs,
-			Gap:     -math.MaxFloat64,
-			History: make(map[string]int, 100),
-		}
-		bad, _ := qubo.Evaluate()
-		return bad
-	}, uint((p.NCols*(p.NCols+1))/2))
-	if err != nil {
-		notify.Fatal(err)
-	}
-	return bestCfs
-}
+			// Create coefficient lists in the background.
+			go func() {
+				allCoeffs(icfs, 0, c, cch)
+			}()
 
-// coeffsRandom returns a completely random set of coefficients, optionally
-// rounding them to a given value.
-func coeffsRandom(p *Parameters, rng *rand.Rand, rt float64) []float64 {
-	// Generate random coefficients.
-	nc := p.NCols
-	cfs := make([]float64, (nc*(nc+1))/2)
-	for c := range cfs {
-		if c < nc {
-			// Linear coefficient
-			cfs[c] = rng.Float64()*(p.MaxL-p.MinL) + p.MinL
-		} else {
-			// Quadratic coefficient
-			cfs[c] = rng.Float64()*(p.MaxQ-p.MinQ) + p.MinQ
-		}
-	}
+			// In the foreground (of a background goroutine), pack
+			// coefficient lists into QUBOs for the caller's
+			// convenience.
+			for cf := range cch {
+				// Divide each integer by nc to produce a
+				// floating-point coefficient.
+				ncf := float64(nc)
+				cfs := make([]float64, (nc*(nc+1))/2)
+				for i, c := range cf {
+					cfs[i] = float64(c) / ncf
+				}
 
-	// Optionally round each of them.
-	if rt <= 0.0 {
-		return cfs
-	}
-	for i, v := range cfs {
-		cfs[i] = math.Round(v/rt) * rt
-	}
-	return cfs
-}
-
-// coeffsBiased returns a set of coefficients that favors a single row of the
-// truth table, ignoring all others.
-func coeffsBiased(p *Parameters, rng *rand.Rand) []float64 {
-	// Select a row at random.
-	row := rng.Intn(len(p.TT))
-	valid := p.TT[row]
-
-	// Assign linear coefficients.
-	nCfs := p.NCols * (p.NCols + 1) / 2
-	cfs := make([]float64, nCfs)
-	for b := 0; b < p.NCols; b++ {
-		rb := p.NCols - b - 1 // Reverse bit order.
-		v := (row >> rb) & 1
-		switch {
-		case valid && v == 0:
-			cfs[b] = 1.0
-		case valid && v == 1:
-			cfs[b] = -1.0
-		case !valid && v == 0:
-			cfs[b] = -1.0
-		case !valid && v == 1:
-			cfs[b] = 1.0
-		}
-	}
-
-	// Assign quadraric coefficients.
-	i := p.NCols
-	for b0 := 0; b0 < p.NCols-1; b0++ {
-		rb0 := p.NCols - b0 - 1 // Reverse bit order.
-		v0 := (row >> rb0) & 1
-		for b1 := b0 + 1; b1 < p.NCols; b1++ {
-			rb1 := p.NCols - b1 - 1 // Reverse bit order.
-			v1 := (row >> rb1) & 1
-			switch {
-			case valid && v0 == v1:
-				cfs[b0] += 1.0
-				cfs[b1] += 1.0
-				cfs[i] -= 2.0
-			case valid && v0 != v1:
-				cfs[b0] -= 1.0
-				cfs[b1] -= 1.0
-				cfs[i] += 2.0
-			case !valid && v0 == v1:
-				cfs[b0] -= 1.0
-				cfs[b1] -= 1.0
-				cfs[i] += 2.0
-			case !valid && v0 != v1:
-				cfs[b0] += 1.0
-				cfs[b1] += 1.0
-				cfs[i] -= 2.0
+				// Create a QUBO and send it down the channel.
+				qch <- &QUBO{
+					Params: p,
+					Coeffs: cfs,
+					Gap:    -math.MaxFloat64,
+				}
 			}
-			i++
 		}
+		close(qch)
+	}()
+
+	// Return a channel from which QUBOs can be read.
+	return qch
+}
+
+// allCoeffs returns all possible slices with coefficients in the range
+// [-c, c], starting with values of smallest magnitude.
+func allCoeffs(cfs []int, i, c int, ch chan []int) {
+	// Recursively fill in elements of cfs until none remain.
+	if i == len(cfs) {
+		// Ensure that at least one coefficient is equal to s.
+		ok := false
+		for _, cf := range cfs {
+			if cf == c || cf == -c {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return
+		}
+
+		// Send the completed coefficient list into the channel.
+		coeffs := make([]int, i)
+		copy(coeffs, cfs)
+		ch <- coeffs
+		return
 	}
-	return cfs
+	for j := 0; j < 2*c+1; j++ {
+		cfs[i] = j*(j%2) - j/2 // {0, 1, -1, 2, -2, ...}
+		allCoeffs(cfs, i+1, c, ch)
+	}
+	if i == 0 {
+		close(ch)
+	}
 }
 
 // AllPossibleColumns returns a matrix containing all possible columns
@@ -290,226 +230,6 @@ func (q *QUBO) Evaluate() (float64, error) {
 	return bad, nil
 }
 
-// mutateRandomize mutates a single coefficient at random.
-func (q *QUBO) mutateRandomize(rng *rand.Rand) {
-	p := q.Params
-	c := rng.Intn(len(q.Coeffs))
-	if c < p.NCols {
-		// Linear coefficient
-		q.Coeffs[c] = rng.Float64()*(p.MaxL-p.MinL) + p.MinL
-	} else {
-		// Quadratic coefficient
-		q.Coeffs[c] = rng.Float64()*(p.MaxQ-p.MinQ) + p.MinQ
-	}
-}
-
-// mutateReplaceAll mutates all coefficients using any of a variety of schemes.
-func (q *QUBO) mutateReplaceAll(rng *rand.Rand) {
-	// Select a set of coefficients to consider.
-	var cfs []float64
-	var add bool // true=add to existing coefficients; false=replace existing coefficients
-	switch rng.Intn(4) {
-	case 0:
-		// Local minimum found by particle-swarm optimization
-		cfs = coeffsSPSO(q.Params, rng)
-	case 1:
-		// Coefficients biased to favor a single row
-		cfs = coeffsBiased(q.Params, rng)
-		add = true
-	case 2:
-		// Coefficients biased to favor two rows
-		cf1 := coeffsBiased(q.Params, rng)
-		cf2 := coeffsBiased(q.Params, rng)
-		for i, v := range cf2 {
-			cf1[i] += v
-		}
-		cfs = cf1
-		add = true
-	case 3:
-		// Completely random coefficients, either rounded or not
-		rtChoices := [...]float64{0.0, 0.03125, 0.0625, 0.125, 0.25, 0.5}
-		rt := rtChoices[rng.Intn(len(rtChoices))]
-		cfs = coeffsRandom(q.Params, rng, rt)
-		if rng.Intn(2) == 0 {
-			add = true
-		}
-	default:
-		panic("Unexpected option in mutateReplaceAll")
-	}
-
-	// Either add or replace the existing coefficients.
-	if add {
-		for i, cf := range cfs {
-			q.Coeffs[i] += cf
-		}
-		q.Rescale()
-	} else {
-		q.Coeffs = cfs
-	}
-}
-
-// mutateFlipSign negates a single coefficient at random.
-func (q *QUBO) mutateFlipSign(rng *rand.Rand) {
-	c := rng.Intn(len(q.Coeffs))
-	q.Coeffs[c] = -q.Coeffs[c]
-}
-
-// mutateCopy copies one coefficient to another, optionally doubling one of the
-// values.
-func (q *QUBO) mutateCopy(rng *rand.Rand) {
-	// Select two coefficients.
-	nc := len(q.Coeffs)
-	var c1, c2 int
-	switch rng.Intn(5) {
-	case 0:
-		// Select the two nearest coefficients in magnitude that are
-		// not already equal.
-		closest := math.MaxFloat64
-		for i := 0; i < nc-1; i++ {
-			v1 := math.Abs(q.Coeffs[i])
-			for j := i + 1; j < nc; j++ {
-				v2 := math.Abs(q.Coeffs[j])
-				d := math.Abs(v1 - v2)
-				if d != 0.0 && d < closest {
-					closest = d
-					c1 = i
-					c2 = j
-				}
-			}
-		}
-	default:
-		// Select two coefficients at random.
-		c1 = rng.Intn(nc)
-		c2 = (rng.Intn(nc-1) + c1 + 1) % nc // Different from c1
-	}
-
-	// Copy one coefficient to the other either as is or halved in
-	// magnitude.
-	q.Coeffs[c1] = math.Copysign(q.Coeffs[c2], q.Coeffs[c1])
-	if rng.Intn(3) == 0 {
-		q.Coeffs[c1] /= 2.0
-	}
-}
-
-// mutateNudge slightly modifies a single coefficient.
-func (q *QUBO) mutateNudge(rng *rand.Rand) {
-	const nudgeAmt = 1e-4
-	p := q.Params
-	c := rng.Intn(len(q.Coeffs))
-	cf := q.Coeffs[c] + rng.Float64()*nudgeAmt*2 - nudgeAmt
-	if c < p.NCols {
-		// Linear coefficient
-		cf = math.Min(math.Max(cf, p.MinL), p.MaxL)
-	} else {
-		// Quadratic coefficient
-		cf = math.Min(math.Max(cf, p.MinQ), p.MaxQ)
-	}
-	q.Coeffs[c] = cf
-}
-
-// mutateReplaceLargest randomly replaces the largest-in-magnitude coefficient.
-func (q *QUBO) mutateReplaceLargest(rng *rand.Rand) {
-	// Find the largest coefficient.
-	big := 0.0 // Largest magnitude coefficient (absolute value)
-	idx := 0   // Index of the above
-	for i, cf := range q.Coeffs {
-		cf = math.Abs(cf)
-		if cf > big {
-			big = cf
-			idx = i
-		}
-	}
-
-	// Replace the coefficient with a random value, preserving its sign.
-	p := q.Params
-	var r float64
-	if idx < p.NCols {
-		// Linear coefficient
-		r = rng.Float64()*(p.MaxL+p.MinL) - p.MinL
-	} else {
-		// Quadratic coefficient
-		r = rng.Float64()*(p.MaxQ+p.MinQ) - p.MinQ
-	}
-	q.Coeffs[idx] = math.Copysign(r, q.Coeffs[idx])
-}
-
-// Mutate mutates the QUBO's coefficients.
-func (q *QUBO) Mutate(rng *rand.Rand) {
-	r := rng.Intn(100)
-	switch {
-	case r == 0:
-		// Replace all coefficients (rare).
-		q.mutateReplaceAll(rng)
-		q.History["mutateReplaceAll"]++
-	case r < 5:
-		// Negate a coefficient (fairly rare).
-		q.mutateFlipSign(rng)
-		q.History["mutateFlipSign"]++
-	case r < 5+20:
-		// Copy one coefficient to another.
-		q.mutateCopy(rng)
-		q.History["mutateCopy"]++
-	case r < 5+20+20:
-		// Randomize a single coefficient.
-		q.mutateRandomize(rng)
-		q.History["mutateRandomize"]++
-	case r < 5+20+20+20:
-		// Replace the largest coefficient.
-		q.mutateReplaceLargest(rng)
-		q.History["mutateReplaceLargest"]++
-	default:
-		// Slightly modify a single coefficient.
-		q.mutateNudge(rng)
-		q.History["mutateNudge"]++
-	}
-}
-
-// Crossover randomly blends the coefficients of two QUBOs.
-func (q *QUBO) Crossover(g eaopt.Genome, rng *rand.Rand) {
-	// Merge the two histories.  We use max instead of division to avoid
-	// roughly doubling the values each iteration.
-	q2 := g.(*QUBO)
-	h1 := make(map[string]int, len(q.History)+len(q2.History))
-	h2 := make(map[string]int, len(q.History)+len(q2.History))
-	for k, v := range q.History {
-		h1[k] = v
-	}
-	for k, v := range q2.History {
-		if v > h1[k] {
-			h1[k] = v
-		}
-	}
-	for k, v := range h1 {
-		h2[k] = v
-	}
-	q.History = h1
-	q2.History = h2
-
-	// Cross over the coefficients.
-	eaopt.CrossUniformFloat64(q.Coeffs, q2.Coeffs, rng)
-}
-
-// Clone returns a copy of a QUBO.
-func (q *QUBO) Clone() eaopt.Genome {
-	// Copy the coefficients.
-	cfs := make([]float64, len(q.Coeffs))
-	copy(cfs, q.Coeffs)
-
-	// Copy the history.
-	hist := make(map[string]int, len(q.History))
-	for k, v := range q.History {
-		hist[k] = v
-	}
-
-	// Create and return a copy of the QUBO.
-	return &QUBO{
-		Params:  q.Params,
-		Coeffs:  cfs,
-		Gap:     q.Gap,
-		History: hist,
-	}
-}
-
 // Rescale scales all coefficients so the maximum is as large as possible.
 func (q *QUBO) Rescale() {
 	// Find the maximal linear term.
@@ -573,118 +293,6 @@ func (q *QUBO) AsOctaveMatrix() string {
 		oct[r] = strings.Join(row, " ")
 	}
 	return "[" + strings.Join(oct, " ; ") + "]"
-}
-
-// MakeGACallback returns a callback function to be executed after each
-// generation of the genetic algorithm.
-func MakeGACallback(p *Parameters) func(ga *eaopt.GA) {
-	prevBest := math.MaxFloat64 // Least badness seen so far
-	startTime := time.Now()     // Current time
-	prevReport := startTime     // Last time we reported our status
-	prevLongReport := startTime // Last time we reported additional status
-	return func(ga *eaopt.GA) {
-		hof := ga.HallOfFame[0]
-		bad := hof.Fitness
-		qubo := hof.Genome.(*QUBO)
-		if time.Since(prevLongReport) > 1*time.Minute {
-			// Output additional information once per minute.
-			status.Printf("On generation %d, coefficients = %v", ga.Generations, qubo.Coeffs)
-			mn, mx := math.MaxFloat64, -math.MaxFloat64
-			for _, cf := range qubo.Coeffs {
-				acf := math.Abs(cf)
-				mn = math.Min(mn, acf)
-				mx = math.Max(mx, acf)
-			}
-			status.Printf("    Coefficient range (magnitude) = [%v, %v]", mn, mx)
-			prevLongReport = time.Now()
-		}
-		if bad < prevBest && time.Since(prevReport) > 3*time.Second {
-			// Report when we have a new least badness but not more
-			// than once every 3 seconds.
-			status.Printf("Badness = %.10g (gap = %.1e) after %d generations and %.1fs", bad, qubo.Gap, ga.Generations, ga.Age.Seconds())
-
-			// If the gap has been near zero for a long time
-			// without crossing above zero, the problem is likely
-			// unsolvable given the current number of ancillary
-			// variables.
-			switch {
-			case p.ZeroGen == -1 && qubo.Gap <= 0.0 && -qubo.Gap < NearZero:
-				// Small, negative gap: start the death clock
-				// ticking.
-				p.ZeroGen = int(ga.Generations)
-			case p.ZeroGen != -1 && qubo.Gap > 0.0:
-				// Any positive gap: stop the death clock.
-				p.ZeroGen = -1
-			}
-
-			// Record when we last reported our status.
-			prevBest = bad
-			prevReport = time.Now()
-			return
-		}
-
-		// In the case of no progress, provide a heartbeat message
-		// every 5 seconds so the user knows we're still working.
-		if time.Since(prevReport) > 5*time.Second {
-			status.Printf("Working on generation %d at time %.1fs", ga.Generations, time.Since(startTime).Seconds())
-			prevReport = time.Now()
-		}
-	}
-}
-
-// OptimizeCoeffs tries to find the coefficients that best represent the given
-// truth table, the corresponding badness, and the number of generations
-// evolved.  It aborts on error.
-func OptimizeCoeffs(p *Parameters) (*QUBO, float64, uint) {
-	// Create a genetic-algorithm object.
-	cfg := eaopt.NewDefaultGAConfig()
-	cfg.NGenerations = 1000000
-	cfg.Model = eaopt.ModGenerational{
-		Selector:  eaopt.SelTournament{NContestants: 3},
-		MutRate:   0.85,
-		CrossRate: 0.50,
-	}
-	cfg.PopSize = 30
-	cfg.NPops = uint(runtime.NumCPU())
-	cfg.Migrator = eaopt.MigRing{NMigrants: 5}
-	cfg.MigFrequency = 10000
-	cfg.Callback = MakeGACallback(p)
-	cfg.EarlyStop = func(ga *eaopt.GA) bool {
-		qubo := ga.HallOfFame[0].Genome.(*QUBO)
-		if qubo.Gap > 0.0 {
-			// We found a valid solution, meaning that all valid
-			// rows evaluate to a smaller number than all invalid
-			// rows.
-			return true
-		}
-		if p.ZeroGen >= 0 && int(ga.Generations)-p.ZeroGen > p.ZeroGenLen {
-			// A solution appears to be impossible given the current
-			// number of ancillae.
-			return true
-		}
-		return false // Keep running.
-	}
-	ga, err := cfg.NewGA()
-	if err != nil {
-		notify.Fatal(err)
-	}
-
-	// Run the genetic algorithm.
-	err = ga.Minimize(func(rng *rand.Rand) eaopt.Genome {
-		// Usually generate coefficients at random, but sometimes get
-		// them from particle-swarm optimization.
-		if rng.Intn(10) == 0 {
-			return NewSPSOQUBO(p, rng)
-		}
-		return NewRandomQUBO(p, rng)
-	})
-	if err != nil {
-		notify.Fatal(err)
-	}
-
-	// Return the best coefficients we found.
-	hof := ga.HallOfFame[0]
-	return hof.Genome.(*QUBO), hof.Fitness, ga.Generations
 }
 
 // LPReoptimize use a linear-programming algorithm to re-optimize a QUBO's
@@ -811,4 +419,15 @@ func (q *QUBO) LPReoptimize(isValid []bool) bool {
 	soln := simp.PrimalColumnSolution()
 	copy(q.Coeffs, soln)
 	return true
+}
+
+// OptimizeCoeffs tries to find the coefficients that best represent the given
+// truth table.  It aborts on error.
+func OptimizeCoeffs(p *Parameters) *QUBO {
+	// Temporary
+	qch := QUBOFactory(p)
+	for q := range qch {
+		status.Printf("QUBO = %v", q)
+	}
+	return nil
 }
