@@ -364,7 +364,7 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 		// Ensure that all valid rows have a value less than that of
 		// any invalid row.
 		gap := ComputeGap(vals, isValid)
-		if gap >= 0.0 {
+		if gap <= 0.0 {
 			// The valid and invalid rows overlap.  Continue with
 			// the next QUBO.
 			continue
@@ -383,6 +383,7 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 			// False alarm.  The LP solver thinks it solved the
 			// problem, but this was in fact a bogus solution
 			// caused by numerical imprecision.
+			panic("False positive") // Temporary
 			continue
 		}
 		return q, gap, vals, isValid
