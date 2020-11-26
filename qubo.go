@@ -4,6 +4,7 @@
 package main
 
 import (
+	"crypto/sha512"
 	"fmt"
 	"math"
 	"math/rand"
@@ -325,10 +326,30 @@ func ComputeGap(vals []float64, isValid []bool) float64 {
 	return minInvalid - maxValid
 }
 
+// A checksum is a SHA-512 checksum.
+type checksum [sha512.Size]byte
+
+// hashBools maps a slice of Booleans to a SHA-512 checksum.
+func hashBools(bs []bool) checksum {
+	// We sloppily use one byte per bit to compute the checksum.
+	ds := make([]byte, len(bs))
+	for i, b := range bs {
+		if b {
+			ds[i] = '1'
+		} else {
+			ds[i] = '0'
+		}
+	}
+	return sha512.Sum512(ds)
+}
+
 // OptimizeCoeffs tries to find the coefficients that best represent the given
 // truth table.  It returns the QUBO, invalid-valid gap, row values, and row
 // validity indicators.  The function aborts on error.
 func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
+	// Keep track of valid arrays we've seen previously.
+	seen := make(map[checksum]struct{})
+
 	// Consider a large number of coefficients in turn.
 	qch := QUBOFactory(p)
 	for q := range qch {
@@ -341,6 +362,12 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 		// table but different ancillae) to treat as valid and mark the
 		// remaining rows as invalid.
 		isValid := q.SelectValidRows(vals)
+		h := hashBools(isValid)
+		if _, found := seen[h]; found {
+			// We've seen this pattern before.
+			continue
+		}
+		seen[h] = struct{}{}
 
 		// At this point we may or may not have a correct QUBO.  In any
 		// case, it ignores the bounds imposed on the coefficients.  We
