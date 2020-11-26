@@ -6,7 +6,9 @@ package main
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"strings"
+	"time"
 
 	"github.com/lanl/clp"
 	"gonum.org/v1/gonum/mat"
@@ -45,7 +47,7 @@ func QUBOFactory(p *Parameters) chan *QUBO {
 
 			// Create coefficient lists in the background.
 			go func() {
-				allCoeffs(icfs, 0, c, cch)
+				randomCoeffs(icfs, 10000, c, cch)
 			}()
 
 			// In the foreground (of a background goroutine), pack
@@ -103,6 +105,21 @@ func allCoeffs(cfs []int, i, c int, ch chan []int) {
 	if i == 0 {
 		close(ch)
 	}
+}
+
+// randomCoeffs returns an given number of slices with coefficients
+// in the range [-c, c].
+func randomCoeffs(cfs []int, n, c int, ch chan []int) {
+	rng := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
+	for i := 0; i < n; i++ {
+		coeffs := make([]int, len(cfs))
+		copy(coeffs, cfs)
+		for j := range coeffs {
+			coeffs[j] = rng.Intn(2*c+1) - c
+		}
+		ch <- coeffs
+	}
+	close(ch)
 }
 
 // AllPossibleColumns returns a matrix containing all possible columns
@@ -361,29 +378,19 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 		// remaining rows as invalid.
 		isValid := q.SelectValidRows(vals)
 
-		// Ensure that all valid rows have a value less than that of
-		// any invalid row.
-		gap := ComputeGap(vals, isValid)
-		if gap <= 0.0 {
-			// The valid and invalid rows overlap.  Continue with
-			// the next QUBO.
-			continue
-		}
-
-		// At this point we have a correct QUBO but one that ignored
-		// the bounds imposed on the coefficients.  We run an LP solver
-		// both to enforce coefficient bounds and to maximize the gap
-		// between valid and invalid rows.
+		// At this point we may or may not have a correct QUBO.  In any
+		// case, it ignores the bounds imposed on the coefficients.  We
+		// run an LP solver both to enforce coefficient bounds and to
+		// maximize the gap between valid and invalid rows.
 		if !q.LPReoptimize(isValid) {
 			notify.Fatal("The LP solver failed to optimize the QUBO coefficients")
 		}
 		vals = q.EvaluateAllInputs()    // Recompute the values now that we have new coefficients.
-		gap = ComputeGap(vals, isValid) // Recompute the gap, too.
+		gap := ComputeGap(vals, isValid) // Recompute the gap.
 		if gap <= 0.0 {
 			// False alarm.  The LP solver thinks it solved the
 			// problem, but this was in fact a bogus solution
-			// caused by numerical imprecision.
-			panic("False positive") // Temporary
+			// likely caused by numerical imprecision.
 			continue
 		}
 		return q, gap, vals, isValid
