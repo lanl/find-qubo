@@ -4,7 +4,6 @@
 package main
 
 import (
-	"crypto/sha512"
 	"fmt"
 	"math"
 	"math/rand"
@@ -17,77 +16,51 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-// NearZero defines a value close enough to zero to be considered a zero gap.
-const NearZero = 1e-5
-
 // A QUBO represents a QUBO matrix whose values we're solving for.
 type QUBO struct {
 	Params *Parameters // Pointer to global program parameters
 	Coeffs []float64   // List of linear followed by quadratic coefficients
 }
 
-// QUBOFactory produces all QUBOs we care about in turn.  It returns in turn
-// each QUBO with coefficients of the form n/c for n∈[-c, c] and c being the
-// number of coefficients.
-func QUBOFactory(p *Parameters) chan *QUBO {
-	// Create a QUBO channel on which to send complete QUBOs.
-	qch := make(chan *QUBO, 16)
-
-	// Produce QUBOs in the background.
-	go func() {
-		// Iterate over increasing values of c on the hypothesis that
-		// small values will suffice in most cases.
-		nc := p.NCols               // Number of columns
-		ncfs := (nc * (nc + 1)) / 2 // Number of coefficients
-		cch := make(chan []int, nc) // Channel on which to receive coefficient lists.
-
-		// Create coefficient lists in the background.
-		go func() {
-			randomCoeffs(p.NRands, ncfs, cch)
-		}()
-
-		// In the foreground (of a background goroutine), pack
-		// coefficient lists into QUBOs for the caller's convenience.
-		for cf := range cch {
-			// Divide each integer by nc to produce a
-			// floating-point coefficient.
-			cfs := make([]float64, ncfs)
-			for i, c := range cf {
-				cfs[i] = float64(c) / float64(ncfs)
-			}
-
-			// Create a QUBO and send it down the channel.
-			qch <- &QUBO{
-				Params: p,
-				Coeffs: cfs,
-			}
-		}
-		close(qch)
-	}()
-
-	// Return a channel from which QUBOs can be read.
-	return qch
+// NewQUBO initializes and return a new QUBO structure.
+func NewQUBO(p *Parameters) *QUBO {
+	nc := p.NCols
+	return &QUBO{
+		Params: p,
+		Coeffs: make([]float64, (nc*(nc+1))/2),
+	}
 }
 
-// randomCoeffs returns an given number of slices with coefficients
-// in the range [-ncfs, ncfs].
-func randomCoeffs(n, ncfs int, ch chan []int) {
-	// Choose numbers in the range [-ncfs, ncfs] but biased towards numbers
-	// with smaller magnitudes, except 0, which is used rarely.
-	rng := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
-	zipf := rand.NewZipf(rng, 2.0, 3.0, 2*uint64(ncfs))
-
-	// Generate the given number of random coefficient sets.
-	for i := 0; i < n; i++ {
-		cfs := make([]int, ncfs)
-		for j := range cfs {
-			z := int(zipf.Uint64()) // {0, 1, 2, ..., 2*ncfs+1}
-			z1 := z + 1
-			cfs[j] = (z1*(z1%2) - z1/2) % (ncfs + 1) // {1, -1, 2, -2, ..., ncfs, -ncfs, 0}
+// TTFactory produces a large number of random truth tables.  These are defined
+// such that invalid rows in the user-specified truth table remain invalid and
+// that exactly one out of each set of 2^a replicas of a each valid row remain
+// valid (where a is the number of ancillae).
+func TTFactory(p *Parameters) chan TruthTable {
+	ch := make(chan TruthTable, 100)
+	go func() {
+		rng := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
+		nr := 1 << p.NCols // Number of rows in the truth table
+		br := 1 << p.NAnc  // Number of rows in a block
+		for i := 0; i < p.NRands; i++ {
+			tt := p.TT.Copy()
+			for r := 0; r < nr; r += br {
+				// Select at most one row per block to consider
+				// valid.
+				if !tt[r] {
+					// Entire block of rows is invalid:
+					// Leave it alone.
+					continue
+				}
+				vOfs := rng.Intn(br) // Select a single, random row in the block to keep valid.
+				for ofs := 0; ofs < br; ofs++ {
+					tt[r+ofs] = ofs == vOfs
+				}
+			}
+			ch <- tt
 		}
-		ch <- cfs
-	}
-	close(ch)
+		close(ch)
+	}()
+	return ch
 }
 
 // AllPossibleColumns returns a matrix containing all possible columns
@@ -134,33 +107,6 @@ func (q *QUBO) EvaluateAllInputs() []float64 {
 	return vals
 }
 
-// SelectValidRows selects at most one row in each batch of 2^a (with
-// a ancillae) to treat as valid.
-func (q *QUBO) SelectValidRows(vals []float64) []bool {
-	// Iterate over each base row (i.e., rows if there were no ancillae).
-	p := q.Params
-	nRows := len(p.TT)
-	valids := make([]bool, nRows)
-	bSize := 1 << p.NAnc // Number of rows to consider as a single batch
-	for base := 0; base < nRows; base += bSize {
-		// Select the smallest-valued row as the valid row.
-		if !p.TT[base] {
-			continue // No rows in the batch should be considered valid.
-		}
-		var vRow int // Single valid row
-		minVal := math.MaxFloat64
-		for ofs := 0; ofs < bSize; ofs++ {
-			r := base + ofs
-			if vals[r] < minVal {
-				minVal = vals[r]
-				vRow = r
-			}
-		}
-		valids[vRow] = true
-	}
-	return valids
-}
-
 // AsOctaveMatrix returns the coefficients as a string that can be pasted into
 // GNU Octave or MATLAB.
 func (q *QUBO) AsOctaveMatrix() string {
@@ -188,10 +134,10 @@ func (q *QUBO) AsOctaveMatrix() string {
 	return "[" + strings.Join(oct, " ; ") + "]"
 }
 
-// LPReoptimize use a linear-programming algorithm to re-optimize a QUBO's
+// LPSolve uses a linear-programming algorithm to re-optimize a QUBO's
 // coefficients in search of perfect balance of all valid rows.  This method
 // returns a success code.
-func (q *QUBO) LPReoptimize(isValid []bool) bool {
+func (q *QUBO) LPSolve(isValid TruthTable) bool {
 	// Define multipliers for each linear term's coefficients.  Each
 	// multiplier will be either 0.0 (omitted) or 1.0.
 	p := q.Params
@@ -317,10 +263,10 @@ func (q *QUBO) LPReoptimize(isValid []bool) bool {
 // ComputeGap returns the difference between the minimum invalid and maximum
 // valid rows.  A positive difference indicates a correct solution; a
 // non-positive difference indicates an incorrect solution.
-func ComputeGap(vals []float64, isValid []bool) float64 {
+func ComputeGap(vals []float64, tt TruthTable) float64 {
 	minInvalid, maxValid := math.MaxFloat64, -math.MaxFloat64
 	for r, v := range vals {
-		if isValid[r] {
+		if tt[r] {
 			maxValid = math.Max(maxValid, v)
 		} else {
 			minInvalid = math.Min(minInvalid, v)
@@ -329,67 +275,26 @@ func ComputeGap(vals []float64, isValid []bool) float64 {
 	return minInvalid - maxValid
 }
 
-// A checksum is a SHA-512 checksum.
-type checksum [sha512.Size]byte
-
-// hashBools maps a slice of Booleans to a SHA-512 checksum.
-func hashBools(bs []bool) checksum {
-	// We sloppily use one byte per bit to compute the checksum.
-	ds := make([]byte, len(bs))
-	for i, b := range bs {
-		if b {
-			ds[i] = '1'
-		} else {
-			ds[i] = '0'
-		}
-	}
-	return sha512.Sum512(ds)
-}
-
 // OptimizeCoeffs tries to find the coefficients that best represent the given
 // truth table.  It returns the QUBO, invalid-valid gap, row values, and row
 // validity indicators.  The function aborts on error.
 func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
-	// Keep track of valid arrays we've seen previously.
-	seen := make(map[checksum]struct{})
-
 	// Consider a large number of coefficients in turn.
 	bar := progressbar.NewOptions(p.NRands,
 		progressbar.OptionSetWriter(os.Stderr),
 		progressbar.OptionFullWidth(),
 		progressbar.OptionThrottle(time.Second),
+		progressbar.OptionSetRenderBlankState(true),
 		progressbar.OptionClearOnFinish())
 	defer bar.Clear()
-	qch := QUBOFactory(p)
-	for q := range qch {
+	ttch := TTFactory(p)
+	for tt := range ttch {
 		// Update the progress bar.
 		bar.Add(1)
 
-		// Evaluate x'*Q*x for all binary x to produce a
-		// vector of values.
-		vals := q.EvaluateAllInputs()
-
-		// Given the vector of values, select the smallest of each
-		// batch of equally acceptable valid rows (i.e., same truth
-		// table but different ancillae) to treat as valid and mark the
-		// remaining rows as invalid.
-		isValid := q.SelectValidRows(vals)
-		h := hashBools(isValid)
-		if _, found := seen[h]; found {
-			// We've seen this pattern before.
-			continue
-		}
-		seen[h] = struct{}{}
-
-		// Copy the original coefficients.
-		cfs := make([]float64, len(q.Coeffs))
-		copy(cfs, q.Coeffs)
-
-		// At this point we may or may not have a correct QUBO.  In any
-		// case, it ignores the bounds imposed on the coefficients.  We
-		// run an LP solver both to enforce coefficient bounds and to
-		// maximize the gap between valid and invalid rows.
-		if !q.LPReoptimize(isValid) {
+		// Solve for coefficients representing the truth table.
+		q := NewQUBO(p)
+		if !q.LPSolve(tt) {
 			notify.Fatal("The LP solver failed to optimize the QUBO coefficients")
 		}
 
@@ -401,17 +306,16 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 			}
 		}
 
-		// Recompute the row values and gap.
-		vals = q.EvaluateAllInputs()
-		gap := ComputeGap(vals, isValid)
+		// Compute the row values and gap.
+		vals := q.EvaluateAllInputs()
+		gap := ComputeGap(vals, tt)
 		if gap <= 0.0 {
 			// False alarm.  The LP solver thinks it solved the
 			// problem, but this was in fact a bogus solution
 			// likely caused by numerical imprecision.
 			continue
 		}
-		status.Printf("Pre-optimization coefficients = %v", cfs)
-		return q, gap, vals, isValid
+		return q, gap, vals, tt
 	}
 	return nil, 0.0, nil, nil
 }

@@ -13,6 +13,13 @@ import (
 // either valid or invalid.
 type TruthTable []bool
 
+// Copy copies a given truth table.
+func (tt TruthTable) Copy() TruthTable {
+	ttc := make(TruthTable, len(tt))
+	copy(ttc, tt)
+	return ttc
+}
+
 // parseRow parses a row of Booleans, specified in a flexible manner, into one
 // or more binary numbers.  It returns the numbers and the total number of bits
 // on the line.  The function aborts on error.
