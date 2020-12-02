@@ -381,6 +381,10 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 		}
 		seen[h] = struct{}{}
 
+		// Copy the original coefficients.
+		cfs := make([]float64, len(q.Coeffs))
+		copy(cfs, q.Coeffs)
+
 		// At this point we may or may not have a correct QUBO.  In any
 		// case, it ignores the bounds imposed on the coefficients.  We
 		// run an LP solver both to enforce coefficient bounds and to
@@ -406,6 +410,7 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 			// likely caused by numerical imprecision.
 			continue
 		}
+		status.Printf("Pre-optimization coefficients = %v", cfs)
 		return q, gap, vals, isValid
 	}
 	return nil, 0.0, nil, nil
