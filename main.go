@@ -111,8 +111,12 @@ func main() {
 	// Report GA statistics.
 	if len(qubo.History) > 0 {
 		status.Print("GA mutation statistics:")
+		tot := 0
+		for _, v := range qubo.History {
+			tot += v
+		}
 		for k, v := range qubo.History {
-			status.Printf("    %-20s %10d", k, v)
+			status.Printf("    %-25s %10d (%5.1f%%)", k, v, 100.0*float64(v)/float64(tot))
 		}
 	}
 
