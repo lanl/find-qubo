@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -433,6 +434,53 @@ func (q *QUBO) mutateReplaceLargest(rng *rand.Rand) {
 	q.Coeffs[idx] = math.Copysign(r, q.Coeffs[idx])
 }
 
+// mutateFavorValidRow adjusts the coefficients of a valid row in an attempt to
+// reduce its computed value.
+func (q *QUBO) mutateFavorValidRow(rng *rand.Rand) {
+	// Construct a list of valid rows, sorted by decreasing value.
+	p := q.Params
+	vRows := make([]int, 0, len(p.TT))
+	for i, v := range p.TT {
+		if v {
+			vRows = append(vRows, i)
+		}
+	}
+	vals := q.EvaluateAllInputs()
+	sort.Slice(vRows, func(i, j int) bool {
+		return vals[i] > vals[j]
+	})
+
+	// Select a row, favoring those with large values.
+	zipf := rand.NewZipf(rng, 1.1, 2.0, uint64(len(vals))-1)
+	row := zipf.Uint64()
+
+	// Lower the value of the selected row.
+	k := rng.Float64()
+	nc := p.NCols
+	for i := 0; i < nc; i++ {
+		if row&(1<<i) == 1 {
+			q.Coeffs[i] -= k
+		} else {
+			q.Coeffs[i] += k
+		}
+	}
+	idx := p.NCols
+	for i := 0; i < nc-1; i++ {
+		for j := i + 1; j < nc; j++ {
+			if row&(1<<i) == row&(1<<j) {
+				q.Coeffs[i] += k
+				q.Coeffs[j] += k
+				q.Coeffs[idx] -= 2 * k
+			} else {
+				q.Coeffs[i] -= k
+				q.Coeffs[j] -= k
+				q.Coeffs[idx] += 2 * k
+			}
+			idx++
+		}
+	}
+}
+
 // Mutate mutates the QUBO's coefficients.
 func (q *QUBO) Mutate(rng *rand.Rand) {
 	r := rng.Intn(100)
@@ -445,18 +493,23 @@ func (q *QUBO) Mutate(rng *rand.Rand) {
 		// Negate a coefficient (fairly rare).
 		q.mutateFlipSign(rng)
 		q.History["mutateFlipSign"]++
-	case r < 5+20:
+	case r < 5+15:
 		// Copy one coefficient to another.
 		q.mutateCopy(rng)
 		q.History["mutateCopy"]++
-	case r < 5+20+20:
+	case r < 5+15+15:
 		// Randomize a single coefficient.
 		q.mutateRandomize(rng)
 		q.History["mutateRandomize"]++
-	case r < 5+20+20+20:
+	case r < 5+15+15+15:
 		// Replace the largest coefficient.
 		q.mutateReplaceLargest(rng)
 		q.History["mutateReplaceLargest"]++
+	case r < 5+15+15+15+25:
+		// Bias the coefficients towards a valid row with a large
+		// computed value.
+		q.mutateFavorValidRow(rng)
+		q.History["mutateFavorValidRow"]++
 	default:
 		// Slightly modify a single coefficient.
 		q.mutateNudge(rng)
