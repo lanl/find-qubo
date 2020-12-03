@@ -682,6 +682,17 @@ func MakeGACallback(p *Parameters) func(ga *eaopt.GA) {
 			status.Printf("Working on generation %d at time %.1fs", ga.Generations, time.Since(startTime).Seconds())
 			prevReport = time.Now()
 		}
+
+		// Renormalize all individuals every thousand iterations.
+		if ga.Generations%1000 == 0 {
+			status.Printf("Rescaling all individuals at generation %d", ga.Generations)
+			for _, pop := range ga.Populations {
+				for i, ind := range pop.Individuals {
+					ind.Genome.(*QUBO).Rescale()
+					pop.Individuals[i].Evaluated = false
+				}
+			}
+		}
 	}
 }
 
