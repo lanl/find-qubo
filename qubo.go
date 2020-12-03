@@ -101,6 +101,31 @@ func (q *QUBO) EvaluateAllInputs() []float64 {
 	return vals
 }
 
+// OutputToInput converts the evaluated output of a QUBO to a truth table that
+// approximates the QUBO.
+func (q *QUBO) OutputToInput(vals []float64) TruthTable {
+	p := q.Params
+	nr := 1 << p.NCols // Number of rows in the truth table
+	br := 1 << p.NAnc  // Number of rows in a block
+	tt := make(TruthTable, nr)
+	for r := 0; r < nr; r += br {
+		if !p.TT[r] {
+			// Entire block of rows is invalid: Leave it alone.
+			continue
+		}
+		minRow, minVal := -1, math.MaxFloat64
+		for ofs := 0; ofs < br; ofs++ {
+			v := vals[r+ofs]
+			if v < minVal {
+				minVal = v
+				minRow = r + ofs
+			}
+		}
+		tt[minRow] = true
+	}
+	return tt
+}
+
 // AsOctaveMatrix returns the coefficients as a string that can be pasted into
 // GNU Octave or MATLAB.
 func (q *QUBO) AsOctaveMatrix() string {
@@ -269,6 +294,34 @@ func ComputeGap(vals []float64, tt TruthTable) float64 {
 	return minInvalid - maxValid
 }
 
+// trySolve attempts to solve for a QUBO's coefficients.  It returns the
+// invalid-valid gap and row values.
+func (q *QUBO) trySolve(tt TruthTable) (float64, []float64) {
+	if !q.LPSolve(tt) {
+		return 0, nil
+	}
+
+	// Round the coefficients if asked to.
+	rt := q.Params.RoundTo
+	if rt > 0.0 {
+		for i, cf := range q.Coeffs {
+			q.Coeffs[i] = math.Round(cf/rt) * rt
+		}
+	}
+
+	// Compute the row values and gap.
+	vals := q.EvaluateAllInputs()
+	gap := ComputeGap(vals, tt)
+	if gap <= 0.0 {
+		// False alarm.  The LP solver thinks it solved
+		// the problem, but this was in fact a bogus
+		// solution likely caused by numerical
+		// imprecision.
+		return 0, nil
+	}
+	return gap, vals
+}
+
 // OptimizeCoeffs tries to find the coefficients that best represent the given
 // truth table.  It returns the QUBO, invalid-valid gap, row values, and row
 // validity indicators.  The function aborts on error.
@@ -289,6 +342,7 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 	tries := 0         // Number of attempts [0, p.NRands-1]
 	baseTT := p.TT     // Baseline truth table
 	lo, hi := 0, br    // Start by working on a single block
+NextLowHigh:
 	for tries < p.NRands {
 		// Generate truth tables until we succeed.
 		status.Printf("Working on [%d, %d] of %d rows", lo, hi, nr) // Temporary
@@ -297,11 +351,10 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 			tries++
 			bar.Add(1)
 
-			// Create a truth table.  Ensure it contains at least
-			// one valid row.
-			tt := ProduceTruthTable(p, rng, baseTT, lo, hi)
+			// If the current range comprises exclusively false
+			// rows, slide the window to the right.
 			allFalse := true
-			for _, b := range tt {
+			for _, b := range p.TT[lo:hi] {
 				if b {
 					allFalse = false
 					break
@@ -309,31 +362,17 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 			}
 			if allFalse {
 				lo, hi = hi, hi+br
-				continue
+				continue NextLowHigh
 			}
+
+			// Create a truth table.  Ensure it contains at least
+			// one valid row.
+			tt := ProduceTruthTable(p, rng, baseTT, lo, hi)
 
 			// Solve for coefficients representing the truth table.
 			q := NewQUBO(p)
-			if !q.LPSolve(tt) {
-				continue
-			}
-
-			// Round the coefficients if asked to.
-			rt := p.RoundTo
-			if rt > 0.0 {
-				for i, cf := range q.Coeffs {
-					q.Coeffs[i] = math.Round(cf/rt) * rt
-				}
-			}
-
-			// Compute the row values and gap.
-			vals := q.EvaluateAllInputs()
-			gap := ComputeGap(vals, tt)
-			if gap <= 0.0 {
-				// False alarm.  The LP solver thinks it solved
-				// the problem, but this was in fact a bogus
-				// solution likely caused by numerical
-				// imprecision.
+			gap, vals := q.trySolve(tt)
+			if gap == 0.0 {
 				continue
 			}
 
@@ -345,7 +384,16 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 			}
 			baseTT = tt
 			lo, hi = hi, hi+br
-			break
+
+			// See if the current partial solution is good enough
+			// to produce a complete solution.
+			altTT := q.OutputToInput(vals)
+			gap, vals = q.trySolve(altTT)
+			if gap != 0.0 {
+				return q, gap, vals, altTT
+			}
+			lo -= br // Back up and try again.
+			continue NextLowHigh
 		}
 	}
 	return nil, 0.0, nil, nil // Return unsuccessfully.
