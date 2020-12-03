@@ -31,36 +31,30 @@ func NewQUBO(p *Parameters) *QUBO {
 	}
 }
 
-// TTFactory produces a large number of random truth tables.  These are defined
-// such that invalid rows in the user-specified truth table remain invalid and
-// that exactly one out of each set of 2^a replicas of a each valid row remain
-// valid (where a is the number of ancillae).
-func TTFactory(p *Parameters) chan TruthTable {
-	ch := make(chan TruthTable, 100)
-	go func() {
-		rng := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
-		nr := 1 << p.NCols // Number of rows in the truth table
-		br := 1 << p.NAnc  // Number of rows in a block
-		for i := 0; i < p.NRands; i++ {
-			tt := p.TT.Copy()
-			for r := 0; r < nr; r += br {
-				// Select at most one row per block to consider
-				// valid.
-				if !tt[r] {
-					// Entire block of rows is invalid:
-					// Leave it alone.
-					continue
-				}
-				vOfs := rng.Intn(br) // Select a single, random row in the block to keep valid.
-				for ofs := 0; ofs < br; ofs++ {
-					tt[r+ofs] = ofs == vOfs
-				}
-			}
-			ch <- tt
+// ProduceTruthTable randomly generates a truth table from an existing one.
+// All rows above a high-water mark are set to "invalid" (maximum flexibility
+// in solving).  All rows below a low-water mark are left unmodified.  All rows
+// in between are randomized.
+// preserving a given number of rows's valid state and randomizing the rest.
+func ProduceTruthTable(p *Parameters, rng *rand.Rand, oldTT TruthTable, lo, hi int) TruthTable {
+	tt := oldTT.Copy() // Truth table to modify and return
+	nr := 1 << p.NCols // Number of rows in the truth table
+	br := 1 << p.NAnc  // Number of rows in a block
+	for r := lo; r < hi; r += br {
+		// Select at most one row per block to consider valid.
+		if !p.TT[r] {
+			// Entire block of rows is invalid: Leave it alone.
+			continue
 		}
-		close(ch)
-	}()
-	return ch
+		vOfs := rng.Intn(br) // Select a single, random row in the block to keep valid.
+		for ofs := 0; ofs < br; ofs++ {
+			tt[r+ofs] = ofs == vOfs
+		}
+	}
+	for r := hi; r < nr; r++ {
+		tt[r] = false
+	}
+	return tt
 }
 
 // AllPossibleColumns returns a matrix containing all possible columns
@@ -279,7 +273,7 @@ func ComputeGap(vals []float64, tt TruthTable) float64 {
 // truth table.  It returns the QUBO, invalid-valid gap, row values, and row
 // validity indicators.  The function aborts on error.
 func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
-	// Consider a large number of coefficients in turn.
+	// Create a progress bar to show our progress.
 	bar := progressbar.NewOptions(p.NRands,
 		progressbar.OptionSetWriter(os.Stderr),
 		progressbar.OptionFullWidth(),
@@ -287,35 +281,72 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 		progressbar.OptionSetRenderBlankState(true),
 		progressbar.OptionClearOnFinish())
 	defer bar.Clear()
-	ttch := TTFactory(p)
-	for tt := range ttch {
-		// Update the progress bar.
-		bar.Add(1)
 
-		// Solve for coefficients representing the truth table.
-		q := NewQUBO(p)
-		if !q.LPSolve(tt) {
-			notify.Fatal("The LP solver failed to optimize the QUBO coefficients")
-		}
+	// Work on increasingly large subsets of the truth table.
+	rng := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
+	nr := 1 << p.NCols // Number of rows in the truth table
+	br := 1 << p.NAnc  // Number of rows in a block
+	tries := 0         // Number of attempts [0, p.NRands-1]
+	baseTT := p.TT     // Baseline truth table
+	lo, hi := 0, br    // Start by working on a single block
+	for tries < p.NRands {
+		// Generate truth tables until we succeed.
+		status.Printf("Working on [%d, %d] of %d rows", lo, hi, nr) // Temporary
+		for tries < p.NRands {
+			// Update the progress bar.
+			tries++
+			bar.Add(1)
 
-		// Round the coefficients if asked to.
-		rt := p.RoundTo
-		if rt > 0.0 {
-			for i, cf := range q.Coeffs {
-				q.Coeffs[i] = math.Round(cf/rt) * rt
+			// Create a truth table.  Ensure it contains at least
+			// one valid row.
+			tt := ProduceTruthTable(p, rng, baseTT, lo, hi)
+			allFalse := true
+			for _, b := range tt {
+				if b {
+					allFalse = false
+					break
+				}
 			}
-		}
+			if allFalse {
+				lo, hi = hi, hi+br
+				continue
+			}
 
-		// Compute the row values and gap.
-		vals := q.EvaluateAllInputs()
-		gap := ComputeGap(vals, tt)
-		if gap <= 0.0 {
-			// False alarm.  The LP solver thinks it solved the
-			// problem, but this was in fact a bogus solution
-			// likely caused by numerical imprecision.
-			continue
+			// Solve for coefficients representing the truth table.
+			q := NewQUBO(p)
+			if !q.LPSolve(tt) {
+				continue
+			}
+
+			// Round the coefficients if asked to.
+			rt := p.RoundTo
+			if rt > 0.0 {
+				for i, cf := range q.Coeffs {
+					q.Coeffs[i] = math.Round(cf/rt) * rt
+				}
+			}
+
+			// Compute the row values and gap.
+			vals := q.EvaluateAllInputs()
+			gap := ComputeGap(vals, tt)
+			if gap <= 0.0 {
+				// False alarm.  The LP solver thinks it solved
+				// the problem, but this was in fact a bogus
+				// solution likely caused by numerical
+				// imprecision.
+				continue
+			}
+
+			// We found a solution.  If it includes all rows, we're
+			// done.  Otherwise, keep what we have and increase the
+			// number of rows considered.
+			if hi == nr {
+				return q, gap, vals, tt
+			}
+			baseTT = tt
+			lo, hi = hi, hi+br
+			break
 		}
-		return q, gap, vals, tt
 	}
-	return nil, 0.0, nil, nil
+	return nil, 0.0, nil, nil // Return unsuccessfully.
 }
