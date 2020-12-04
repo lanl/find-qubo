@@ -35,6 +35,15 @@ func NewQUBO(p *Parameters) *QUBO {
 func ProduceTruthTables(p *Parameters) chan TruthTable {
 	ch := make(chan TruthTable, 16)
 	go func() {
+		// If the number of ancillae is zero, send the truth table as
+		// is then stop.
+		if p.NAnc == 0 {
+			ch <- p.TT.Copy()
+			close(ch)
+			return
+		}
+
+		// In the common case, generate truth tables forever.
 		rng := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
 		nr := 1 << p.NCols // Number of rows in the truth table
 		br := 1 << p.NAnc  // Number of rows in a block
