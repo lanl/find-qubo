@@ -8,12 +8,12 @@ import (
 	"math"
 	"math/rand"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/MaxHalford/eaopt"
 	"github.com/lanl/clp"
+	"github.com/minaguib/weightedrandom"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -437,22 +437,24 @@ func (q *QUBO) mutateReplaceLargest(rng *rand.Rand) {
 // mutateFavorValidRow adjusts the coefficients of a valid row in an attempt to
 // reduce its computed value.
 func (q *QUBO) mutateFavorValidRow(rng *rand.Rand) {
-	// Construct a list of valid rows, sorted by decreasing value.
+	// Construct a list of valid rows.
 	p := q.Params
 	vRows := make([]int, 0, len(p.TT))
+	weights := make([]float64, 0, len(p.TT))
+	vals := q.EvaluateAllInputs()
 	for i, v := range p.TT {
 		if v {
 			vRows = append(vRows, i)
+			weights = append(weights, vals[i])
 		}
 	}
-	vals := q.EvaluateAllInputs()
-	sort.Slice(vRows, func(i, j int) bool {
-		return vals[i] > vals[j]
-	})
 
 	// Select a row, favoring those with large values.
-	zipf := rand.NewZipf(rng, 1.1, 1.0, uint64(len(vRows))-1)
-	row := vRows[zipf.Uint64()]
+	wr, err := weightedrandom.New(weights)
+	if err != nil {
+		panic(err)
+	}
+	row := vRows[wr.Pick()]
 
 	// Lower the value of the selected row.
 	k := rng.Float64()
