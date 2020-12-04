@@ -457,23 +457,29 @@ func (q *QUBO) mutateFavorValidRow(rng *rand.Rand) {
 	// Lower the value of the selected row.
 	k := rng.Float64()
 	nc := p.NCols
-	for i := 0; i < nc; i++ {
-		if row&(1<<i) == 1 {
-			q.Coeffs[i] -= k
+	for b := 0; b < nc; b++ {
+		rb := nc - b - 1 // Reverse bit order.
+		v := (row >> rb) & 1
+		if v == 1 {
+			q.Coeffs[b] -= k
 		} else {
-			q.Coeffs[i] += k
+			q.Coeffs[b] += k
 		}
 	}
-	idx := p.NCols
-	for i := 0; i < nc-1; i++ {
-		for j := i + 1; j < nc; j++ {
-			if row&(1<<i) == row&(1<<j) {
-				q.Coeffs[i] += k
-				q.Coeffs[j] += k
+	idx := nc
+	for b0 := 0; b0 < nc-1; b0++ {
+		rb0 := nc - b0 - 1 // Reverse bit order.
+		v0 := (row >> rb0) & 1
+		for b1 := b0 + 1; b1 < nc; b1++ {
+			rb1 := nc - b1 - 1 // Reverse bit order.
+			v1 := (row >> rb1) & 1
+			if v0 == v1 {
+				q.Coeffs[b0] += k
+				q.Coeffs[b1] += k
 				q.Coeffs[idx] -= 2 * k
 			} else {
-				q.Coeffs[i] -= k
-				q.Coeffs[j] -= k
+				q.Coeffs[b0] -= k
+				q.Coeffs[b1] -= k
 				q.Coeffs[idx] += 2 * k
 			}
 			idx++
