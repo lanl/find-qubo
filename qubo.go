@@ -354,7 +354,11 @@ func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
 		bar.Add(1)
 
 		// Receive the next truth table, and solve for its coefficients.
-		tt := <-ttch
+		tt, ok := <-ttch
+		if !ok {
+			// No more truth tables
+			break
+		}
 		q := NewQUBO(p)
 		gap, vals := q.trySolve(tt)
 		if gap > 0.0 {
