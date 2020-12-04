@@ -451,8 +451,8 @@ func (q *QUBO) mutateFavorValidRow(rng *rand.Rand) {
 	})
 
 	// Select a row, favoring those with large values.
-	zipf := rand.NewZipf(rng, 1.1, 1.0, uint64(len(vals))-1)
-	row := zipf.Uint64()
+	zipf := rand.NewZipf(rng, 1.1, 1.0, uint64(len(vRows))-1)
+	row := vRows[zipf.Uint64()]
 
 	// Lower the value of the selected row.
 	k := rng.Float64()
