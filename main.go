@@ -9,14 +9,13 @@ import (
 	"log"
 	"os"
 	"sort"
-	"time"
 )
 
 // notify is used to output error messages.
 var notify *log.Logger
 
-// status is used to output status messages.
-var status *log.Logger
+// info is used to output status messages.
+var info *log.Logger
 
 // outputEvaluation pretty-prints the evaluation of all inputs.
 func outputEvaluation(p *Parameters, isValid []bool, eval []float64) {
@@ -67,29 +66,11 @@ func outputEvaluation(p *Parameters, isValid []bool, eval []float64) {
 
 func main() {
 	// Initialize program parameters.
-	startTime := time.Now()
 	notify = log.New(os.Stderr, os.Args[0]+": ", 0)
-	status = log.New(os.Stderr, "INFO: ", 0)
+	info = log.New(os.Stderr, "INFO: ", 0)
 	var p Parameters
 	ParseCommandLine(&p)
 
 	// Read the input file.
 	p.TT, p.NCols = ReadTruthTable(&p)
-
-	// Precompute a matrix with all possible 0/1 columns.
-	p.AllCols = AllPossibleColumns(p.NCols)
-
-	// Find the best QUBO we can.
-	q, gap, vals, isValid := OptimizeCoeffs(&p)
-	if q == nil {
-		// TODO: Increase the number of ancillae and try again.
-		notify.Fatal("No solution was found.")
-	}
-
-	// Output what we found.
-	fmt.Printf("Execution time: %v\n", time.Since(startTime))
-	fmt.Printf("Gap = %v\n", gap)
-	fmt.Printf("Coefficients = %v\n", q.Coeffs)
-	fmt.Printf("Matrix form = %v\n", q.AsOctaveMatrix())
-	outputEvaluation(&p, isValid, vals)
 }

@@ -6,13 +6,9 @@ package main
 import (
 	"fmt"
 	"math"
-	"math/rand"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/lanl/clp"
-	"github.com/schollz/progressbar/v3"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -29,84 +25,6 @@ func NewQUBO(p *Parameters) *QUBO {
 		Params: p,
 		Coeffs: make([]float64, (nc*(nc+1))/2),
 	}
-}
-
-// ProduceTruthTables generates an infinite number of truth tables.
-func ProduceTruthTables(p *Parameters) chan TruthTable {
-	ch := make(chan TruthTable, 16)
-	go func() {
-		// If the number of ancillae is zero, send the truth table as
-		// is then stop.
-		if p.NAnc == 0 {
-			ch <- p.TT.Copy()
-			close(ch)
-			return
-		}
-
-		// In the common case, generate truth tables forever.
-		rng := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
-		nr := 1 << p.NCols // Number of rows in the truth table
-		br := 1 << p.NAnc  // Number of rows in a block
-		nb := nr / br      // Number of blocks in the truth table
-		for {
-			// Randomly decide which row in each block should be
-			// valid.  This will be ignored for all-invalid blocks.
-			blockVals := make([]int, nb) // Which row in a block is valid
-			for i := range blockVals {
-				blockVals[i] = rng.Intn(br)
-			}
-
-			// Randomly decide an order in which to modify blocks.
-			order := make([]int, nb)
-			for i := range order {
-				order[i] = i
-			}
-			rng.Shuffle(nb, func(i, j int) {
-				order[i], order[j] = order[j], order[i]
-			})
-
-			// Start with the first row in each block being valid.
-			tt := make(TruthTable, nr)
-			for r := 0; r < nr; r += br {
-				tt[r] = p.TT[r]
-			}
-
-			// Generate a sequence of truth tables.
-			for _, blk := range order {
-				base := blk * br
-				if !p.TT[base] {
-					// All rows are invalid.
-					continue
-				}
-				if blockVals[blk] == 0 {
-					// We already handled the 0 case.
-					continue
-				}
-				for ofs := 0; ofs < br; ofs++ {
-					// Set row blockVals[blk] valid and the
-					// rest invalid.
-					tt[base+ofs] = ofs == blockVals[blk]
-				}
-				ch <- tt.Copy()
-			}
-		}
-	}()
-	return ch
-}
-
-// AllPossibleColumns returns a matrix containing all possible columns
-// for a given number of rows that contain only 0s and 1s.
-func AllPossibleColumns(nr int) *mat.Dense {
-	nc := 1 << nr
-	all := mat.NewDense(nr, nc, make([]float64, nr*nc))
-	for r := 0; r < nr; r++ {
-		for c := 0; c < nc; c++ {
-			if c&(1<<r) != 0 {
-				all.Set(nr-r-1, c, 1.0)
-			}
-		}
-	}
-	return all
 }
 
 // EvaluateAllInputs multiplies the QUBO by each input column in turn (i.e.,
@@ -332,39 +250,4 @@ func (q *QUBO) trySolve(tt TruthTable) (float64, []float64) {
 		return 0, nil
 	}
 	return gap, vals
-}
-
-// OptimizeCoeffs tries to find the coefficients that best represent the given
-// truth table.  It returns the QUBO, invalid-valid gap, row values, and row
-// validity indicators.  The function aborts on error.
-func OptimizeCoeffs(p *Parameters) (*QUBO, float64, []float64, []bool) {
-	// Create a progress bar to show our progress.
-	bar := progressbar.NewOptions(p.NRands,
-		progressbar.OptionSetWriter(os.Stderr),
-		progressbar.OptionFullWidth(),
-		progressbar.OptionThrottle(time.Second),
-		progressbar.OptionSetRenderBlankState(true),
-		progressbar.OptionClearOnFinish())
-	defer bar.Clear()
-
-	// Generate truth tables until we succeed or give up.
-	ttch := ProduceTruthTables(p)
-	for tries := 0; tries < p.NRands; tries++ {
-		// Update the progress bar.
-		bar.Add(1)
-
-		// Receive the next truth table, and solve for its coefficients.
-		tt, ok := <-ttch
-		if !ok {
-			// No more truth tables
-			break
-		}
-		q := NewQUBO(p)
-		gap, vals := q.trySolve(tt)
-		if gap > 0.0 {
-			// Success!
-			return q, gap, vals, tt
-		}
-	}
-	return nil, 0.0, nil, nil // Failure
 }

@@ -118,13 +118,12 @@ func ReadTruthTable(p *Parameters) (TruthTable, int) {
 	if prevNC == 0 {
 		notify.Fatal("Truth table is empty")
 	}
-
-	// Append ancilla columns to the table we just created.
-	return tt.AppendAncillae(prevNC, p.NAnc), prevNC + p.NAnc
+	return tt, prevNC
 }
 
 // AppendAncillae returns a new truth table with ancillary columns appended to
-// the right.
+// the right (and that many doublings of the row count).  The caller is
+// expected to assign meaningful valid/invalid bits to the new rows.
 func (tt TruthTable) AppendAncillae(nc, na int) TruthTable {
 	// Return the original truth table if we have no ancillae to add.
 	if na == 0 {
