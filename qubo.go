@@ -14,16 +14,16 @@ import (
 
 // A QUBO represents a QUBO matrix whose values we're solving for.
 type QUBO struct {
-	Params *Parameters // Pointer to global program parameters
-	Coeffs []float64   // List of linear followed by quadratic coefficients
+	NVars  int       // Number of variables
+	Coeffs []float64 // List of linear followed by quadratic coefficients
 }
 
-// NewQUBO initializes and return a new QUBO structure.
-func NewQUBO(p *Parameters) *QUBO {
-	nc := p.NCols
+// NewQUBO initializes and return a new QUBO structure that represents a given
+// number of variables.
+func NewQUBO(nv int) *QUBO {
 	return &QUBO{
-		Params: p,
-		Coeffs: make([]float64, (nc*(nc+1))/2),
+		NVars:  nv,
+		Coeffs: make([]float64, (nv*(nv+1))/2),
 	}
 }
 
@@ -31,8 +31,7 @@ func NewQUBO(p *Parameters) *QUBO {
 // x'*Q*x for all x).
 func (q *QUBO) EvaluateAllInputs() []float64 {
 	// Convert the coefficients to an upper-triangular matrix.
-	p := q.Params // Global parameters
-	n := p.NCols  // Number of columns and rows
+	n := q.NVars // Number of columns and rows
 	Q := mat.NewSymDense(n, make([]float64, n*n))
 	for i := 0; i < n; i++ {
 		Q.SetSym(i, i, q.Coeffs[i]) // Put linear coefficients on the diagonal.
@@ -46,26 +45,30 @@ func (q *QUBO) EvaluateAllInputs() []float64 {
 	}
 
 	// Evaluate the matrix on all 2^n possible inputs.
-	tt := p.TT
-	vals := make([]float64, tt.NRows)
-	for r := range tt.TT {
-		col := p.AllCols.ColView(r)
-		m := mat.NewDense(1, 1, []float64{0.0})
-		m.Product(col.T(), Q, col)
-		vals[r] = m.At(0, 0)
-	}
-	return vals
+	// TODO: Rewrite this stanza without p.AllCols.
+	/*
+		tt := p.TT
+		vals := make([]float64, tt.NRows)
+		for r := range tt.TT {
+			col := p.AllCols.ColView(r)
+			m := mat.NewDense(1, 1, []float64{0.0})
+			m.Product(col.T(), Q, col)
+			vals[r] = m.At(0, 0)
+		}
+		return vals
+	*/
+	return nil
 }
 
 // AsOctaveMatrix returns the coefficients as a string that can be pasted into
 // GNU Octave or MATLAB.
 func (q *QUBO) AsOctaveMatrix() string {
-	p := q.Params
-	i := p.NCols
-	oct := make([]string, p.NCols)
-	for r := 0; r < p.NCols; r++ {
-		row := make([]string, p.NCols)
-		for c := 0; c < p.NCols; c++ {
+	n := q.NVars
+	i := q.NVars
+	oct := make([]string, n)
+	for r := 0; r < n; r++ {
+		row := make([]string, n)
+		for c := 0; c < n; c++ {
 			switch {
 			case c < r:
 				// Not in upper triangle
@@ -87,16 +90,15 @@ func (q *QUBO) AsOctaveMatrix() string {
 // LPSolve uses a linear-programming algorithm to re-optimize a QUBO's
 // coefficients in search of perfect balance of all valid rows.  This method
 // returns a success code.
-func (q *QUBO) LPSolve(tt TruthTable) bool {
+func (q *QUBO) LPSolve(p *Parameters, tt TruthTable) bool {
 	// Define multipliers for each linear term's coefficients.  Each
 	// multiplier will be either 0.0 (omitted) or 1.0.
-	p := q.Params
 	mat := clp.NewPackedMatrix()
 	nc := len(q.Coeffs) // Number of coefficients
 	nr := tt.NRows      // Number of rows
 	for c := 0; c < tt.NCols; c++ {
 		// Append one multiplier per truth-table row.
-		cc := p.NCols - c - 1
+		cc := q.NVars - c - 1
 		mults := make([]clp.Nonzero, 0, nr/2)
 		for r := 0; r < nr; r++ {
 			if (r>>cc)&1 == 1 {
@@ -113,11 +115,11 @@ func (q *QUBO) LPSolve(tt TruthTable) bool {
 
 	// Define multipliers for each quadratic term's coefficients.  Each
 	// multiplier will be either 0.0 (omitted) or 1.0.
-	for c1 := 0; c1 < p.NCols-1; c1++ {
-		cc1 := p.NCols - c1 - 1
-		for c2 := c1 + 1; c2 < p.NCols; c2++ {
+	for c1 := 0; c1 < q.NVars-1; c1++ {
+		cc1 := q.NVars - c1 - 1
+		for c2 := c1 + 1; c2 < q.NVars; c2++ {
 			// Append one multiplier per truth-table row.
-			cc2 := p.NCols - c2 - 1
+			cc2 := q.NVars - c2 - 1
 			mults := make([]clp.Nonzero, 0, nr/2)
 			for r := 0; r < nr; r++ {
 				if (r>>cc1)&1 == 1 && (r>>cc2)&1 == 1 {
@@ -183,7 +185,7 @@ func (q *QUBO) LPSolve(tt TruthTable) bool {
 			// Constant
 			cb[c].Lower = math.Inf(-1)
 			cb[c].Upper = math.Inf(1)
-		case c < p.NCols:
+		case c < q.NVars:
 			// Linear
 			cb[c].Lower = p.MinL
 			cb[c].Upper = p.MaxL
@@ -227,13 +229,13 @@ func ComputeGap(vals []float64, tt TruthTable) float64 {
 
 // trySolve attempts to solve for a QUBO's coefficients.  It returns the
 // invalid-valid gap and row values.
-func (q *QUBO) trySolve(tt TruthTable) (float64, []float64) {
-	if !q.LPSolve(tt) {
+func (q *QUBO) trySolve(p *Parameters, tt TruthTable) (float64, []float64) {
+	if !q.LPSolve(p, tt) {
 		return 0, nil
 	}
 
 	// Round the coefficients if asked to.
-	rt := q.Params.RoundTo
+	rt := p.RoundTo
 	if rt > 0.0 {
 		for i, cf := range q.Coeffs {
 			q.Coeffs[i] = math.Round(cf/rt) * rt
