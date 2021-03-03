@@ -27,6 +27,32 @@ func NewQUBO(nv int) *QUBO {
 	}
 }
 
+// nVarsToMatrix caches mappings from a variable count, nv, to a matrix of nv
+// rows and 2^nv columns that represents all possible nv-bit vectors.
+var nVarsToMatrix map[int]*mat.Dense
+
+// allPossibleInputs returns a binary matrix containing all possible columns
+// for a given number of rows.
+func (q *QUBO) allPossibleInputs(nv int) *mat.Dense {
+	// Check if we've already computed an appropriate matrix.
+	if m, found := nVarsToMatrix[nv]; found {
+		return m
+	}
+
+	// Create and cache a new matrix.
+	pnv := 1 << nv
+	m := mat.NewDense(nv, pnv, make([]float64, nv*pnv))
+	for r := 0; r < nv; r++ {
+		for c := 0; c < pnv; c++ {
+			if c&(1<<r) != 0 {
+				m.Set(nv-r-1, c, 1.0)
+			}
+		}
+	}
+	nVarsToMatrix[nv] = m
+	return m
+}
+
 // EvaluateAllInputs multiplies the QUBO by each input column in turn (i.e.,
 // x'*Q*x for all x).
 func (q *QUBO) EvaluateAllInputs() []float64 {
@@ -44,20 +70,17 @@ func (q *QUBO) EvaluateAllInputs() []float64 {
 		}
 	}
 
-	// Evaluate the matrix on all 2^n possible inputs.
-	// TODO: Rewrite this stanza without p.AllCols.
-	/*
-		tt := p.TT
-		vals := make([]float64, tt.NRows)
-		for r := range tt.TT {
-			col := p.AllCols.ColView(r)
-			m := mat.NewDense(1, 1, []float64{0.0})
-			m.Product(col.T(), Q, col)
-			vals[r] = m.At(0, 0)
-		}
-		return vals
-	*/
-	return nil
+	// Evaluate the matrix on all 2^n possible inputs for n variables.
+	all := q.allPossibleInputs(n)
+	nr := 1 << n
+	vals := make([]float64, nr)
+	for r := 0; r < nr; r++ {
+		col := all.ColView(r)
+		m := mat.NewDense(1, 1, []float64{0.0})
+		m.Product(col.T(), Q, col)
+		vals[r] = m.At(0, 0)
+	}
+	return vals
 }
 
 // AsOctaveMatrix returns the coefficients as a string that can be pasted into
