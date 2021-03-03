@@ -72,5 +72,9 @@ func main() {
 	ParseCommandLine(&p)
 
 	// Read the input file.
-	p.TT, p.NCols = ReadTruthTable(&p)
+	var err error
+	p.TT, err = ReadTruthTable(p.TTName)
+	if err != nil {
+		notify.Fatal(err)
+	}
 }

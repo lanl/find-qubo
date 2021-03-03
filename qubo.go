@@ -46,8 +46,9 @@ func (q *QUBO) EvaluateAllInputs() []float64 {
 	}
 
 	// Evaluate the matrix on all 2^n possible inputs.
-	vals := make([]float64, len(p.TT))
-	for r := range p.TT {
+	tt := p.TT
+	vals := make([]float64, tt.NRows)
+	for r := range tt.TT {
 		col := p.AllCols.ColView(r)
 		m := mat.NewDense(1, 1, []float64{0.0})
 		m.Product(col.T(), Q, col)
@@ -86,14 +87,14 @@ func (q *QUBO) AsOctaveMatrix() string {
 // LPSolve uses a linear-programming algorithm to re-optimize a QUBO's
 // coefficients in search of perfect balance of all valid rows.  This method
 // returns a success code.
-func (q *QUBO) LPSolve(isValid TruthTable) bool {
+func (q *QUBO) LPSolve(tt TruthTable) bool {
 	// Define multipliers for each linear term's coefficients.  Each
 	// multiplier will be either 0.0 (omitted) or 1.0.
 	p := q.Params
 	mat := clp.NewPackedMatrix()
 	nc := len(q.Coeffs) // Number of coefficients
-	nr := len(p.TT)     // Number of rows
-	for c := 0; c < p.NCols; c++ {
+	nr := tt.NRows      // Number of rows
+	for c := 0; c < tt.NCols; c++ {
 		// Append one multiplier per truth-table row.
 		cc := p.NCols - c - 1
 		mults := make([]clp.Nonzero, 0, nr/2)
@@ -150,7 +151,7 @@ func (q *QUBO) LPSolve(isValid TruthTable) bool {
 	// rows and 0 (omitted) for valid rows.
 	mults = make([]clp.Nonzero, 0, nr)
 	for r := 0; r < nr; r++ {
-		if !isValid[r] {
+		if !tt.TT[r] {
 			mults = append(mults, clp.Nonzero{
 				Index: r,
 				Value: -1.0,
@@ -165,7 +166,7 @@ func (q *QUBO) LPSolve(isValid TruthTable) bool {
 		Lower: 1e-30, // Arbitrary small number, much larger than machine epsilon
 		Upper: math.Inf(1),
 	}
-	for r, v := range isValid {
+	for r, v := range tt.TT {
 		if !v {
 			rb[r] = positive
 		}
@@ -215,7 +216,7 @@ func (q *QUBO) LPSolve(isValid TruthTable) bool {
 func ComputeGap(vals []float64, tt TruthTable) float64 {
 	minInvalid, maxValid := math.MaxFloat64, -math.MaxFloat64
 	for r, v := range vals {
-		if tt[r] {
+		if tt.TT[r] {
 			maxValid = math.Max(maxValid, v)
 		} else {
 			minInvalid = math.Min(minInvalid, v)
