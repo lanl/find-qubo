@@ -14,9 +14,8 @@ import (
 // each row marked as either valid or invalid.
 type TruthTable struct {
 	TT    []bool // The truth table proper, with each row representing "valid" or "invalid"
-	NCols int    // Total number of columns
-	NAnc  int    // Subset of the (low order bit) columns that were appended for additional degrees of freedom
-	NRows int    // Total number of rows
+	NCols int    // Number of columns
+	NRows int    // Number of rows
 }
 
 // NewTruthTable returns an empty truth table (i.e., all rows are marked
@@ -127,30 +126,13 @@ func ReadTruthTable(fn string) (TruthTable, error) {
 	return tt, nil
 }
 
-// Extend modifies a truth table to append a given number of additional
-// ancillary columns on the right (and that many doublings of the row count).
-// The new rows are initialized as invalid.
-func (tt *TruthTable) Extend(na int) {
-	// Do nothing if we were asked to add zero columns.
-	if na == 0 {
-		return
-	}
-
-	// Iterate over each row of the original truth table.
-	valids := make([]bool, 0, 1<<(tt.NCols+na))
-	for _, b := range tt.TT {
-		// Retain the existing row's validsity.
-		valids = append(valids, b)
-
-		// Append 2^na-1 invalids rows.
-		for i := 0; i < 1<<na-1; i++ {
-			valids = append(valids, false)
+// ValidRows returns a list of indices of all valid rows.
+func (tt *TruthTable) ValidRows() []int {
+	rows := make([]int, 0, tt.NRows)
+	for i, v := range tt.TT {
+		if v {
+			rows = append(rows, i)
 		}
 	}
-
-	// Update the truth table.
-	tt.TT = valids
-	tt.NCols += na
-	tt.NAnc += na
-	tt.NRows = 1<<tt.NCols
+	return rows
 }

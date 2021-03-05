@@ -276,3 +276,64 @@ func (q *QUBO) trySolve(p *Parameters, tt TruthTable) (float64, []float64) {
 	}
 	return gap, vals
 }
+
+// partitionTT partitions a truth table into a solvable truth table and a
+// possibly unsolvable truth table.
+func (q *QUBO) partitionTT(p *Parameters, tt TruthTable) (TruthTable, TruthTable) {
+	vRows := tt.ValidRows()
+	tt0 := NewTruthTable(tt.NCols)
+	tt1 := NewTruthTable(tt.NCols)
+	for i, r := range vRows {
+		tt0.TT[r] = true
+		if i < 3 {
+			continue // All three-row truth tables are solvable.
+		}
+		if _, vals := q.trySolve(p, tt); vals == nil {
+			// Not solvable
+			tt0.TT[r] = false
+			tt1.TT[r] = true
+		}
+	}
+	return tt0, tt1
+}
+
+// FindCoefficients solves for the QUBO coefficients, adding ancillary
+// variables as necessary.  It uses a greedy algorithm and does not guarantee
+// that the number of ancillae is minimized.
+func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []float64) {
+	tt = tt.Copy() // Don't modify the caller-provided truth table.
+	for na := 0; true; na++ {
+		// Stop if the current truth table is solvable.
+		q := NewQUBO(tt.NCols)
+		gap, vals := q.trySolve(p, tt)
+		if vals != nil {
+			return tt, gap, vals
+		}
+
+		// Partition the truth table into a solvable truth table and a
+		// possibly unsolvable truth table.
+		tt0, tt1 := q.partitionTT(p, tt)
+
+		// Extend the truth table by one bit on the right.
+		ett := NewTruthTable(tt.NCols + 1)
+
+		// Append 0 bits to the first table's rows (e.g., if "010" was
+		// valid in tt0, then "0100" becomes valid in ett).
+		vr0 := tt0.ValidRows()
+		for _, r := range vr0 {
+			ett.TT[r*2] = true
+		}
+
+		// Append 1 bits to the second table's rows (e.g., if "010" was
+		// valid in tt1, then "0101" becomes valid in ett).
+		vr1 := tt1.ValidRows()
+		for _, r := range vr1 {
+			ett.TT[r*2+1] = true
+		}
+
+		// Replace the current truth table with the extended truth table.
+		tt = ett
+		info.Printf("Increasing the number of ancillae from %d to %d", na, na+1)
+	}
+	return TruthTable{}, 0, nil // We should never reach this line.
+}

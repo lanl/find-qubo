@@ -77,9 +77,8 @@ func main() {
 		notify.Fatal(err)
 	}
 
-	// Temporary
-	q := NewQUBO(tt.NCols)
-	gap, vals := q.trySolve(&p, tt)
+	// Solve for the QUBO coefficients that maximize the gap.
+	tt, gap, vals := FindCoefficients(&p, tt)
 	fmt.Printf("Gap = %v\n", gap)
 	outputEvaluation(&p, tt, vals)
 }
