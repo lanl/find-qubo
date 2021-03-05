@@ -299,15 +299,22 @@ func (q *QUBO) partitionTT(p *Parameters, tt TruthTable) (TruthTable, TruthTable
 
 // FindCoefficients solves for the QUBO coefficients, adding ancillary
 // variables as necessary.  It uses a greedy algorithm and does not guarantee
-// that the number of ancillae is minimized.
-func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []float64) {
+// that the number of ancillae is minimized.  The function returns the
+// augmented truth table, the gap, the QUBO coefficients, and a success code.
+func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []float64, bool) {
 	tt = tt.Copy() // Don't modify the caller-provided truth table.
-	for na := 0; true; na++ {
-		// Stop if the current truth table is solvable.
+	for na := uint(0); true; na++ {
+		// Return successfully if the current truth table is solvable.
 		q := NewQUBO(tt.NCols)
 		gap, vals := q.trySolve(p, tt)
 		if vals != nil {
-			return tt, gap, vals
+			return tt, gap, vals, true
+		}
+
+		// Fail if the current truth table is not solvable but we're
+		// not allowed to add any more variables.
+		if na == p.MaxAncillae {
+			return TruthTable{}, 0.0, nil, false
 		}
 
 		// Partition the truth table into a solvable truth table and a
@@ -335,5 +342,5 @@ func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []floa
 		tt = ett
 		info.Printf("Increasing the number of ancillae from %d to %d", na, na+1)
 	}
-	return TruthTable{}, 0, nil // We should never reach this line.
+	return TruthTable{}, 0, nil, false // We should never reach this line.
 }

@@ -10,12 +10,13 @@ import (
 
 // Parameters is a collection of all program parameters.
 type Parameters struct {
-	TTName  string  // Name of the input truth-table file
-	MinQ    float64 // Minimum quadratic coefficient
-	MaxQ    float64 // Maximum quadratic coefficient
-	MinL    float64 // Minimum linear coefficient
-	MaxL    float64 // Maximum linear coefficient
-	RoundTo float64 // Value to which to round all coefficients
+	TTName      string  // Name of the input truth-table file
+	MinQ        float64 // Minimum quadratic coefficient
+	MaxQ        float64 // Maximum quadratic coefficient
+	MinL        float64 // Minimum linear coefficient
+	MaxL        float64 // Maximum linear coefficient
+	RoundTo     float64 // Value to which to round all coefficients
+	MaxAncillae uint    // Maximum number of additional variables we're allowed to add
 }
 
 // ParseCommandLine parses parameters from the command line.
@@ -30,6 +31,7 @@ func ParseCommandLine(p *Parameters) {
 	flag.Float64Var(&p.MinL, "lmin", -1.0, "Minimum linear coefficient")
 	flag.Float64Var(&p.MaxL, "lmax", 1.0, "Maximum linear coefficient")
 	flag.Float64Var(&p.RoundTo, "round", 0, "Value to which to round coefficients or 0 for no rounding")
+	flag.UintVar(&p.MaxAncillae, "max-ancillae", 10, "Maximum number of ancilllary variables the program is allowed to add")
 	flag.Parse()
 	if flag.NArg() >= 1 {
 		p.TTName = flag.Arg(0)

@@ -78,7 +78,10 @@ func main() {
 	}
 
 	// Solve for the QUBO coefficients that maximize the gap.
-	tt, gap, vals := FindCoefficients(&p, tt)
+	tt, gap, vals, ok := FindCoefficients(&p, tt)
+	if !ok {
+		notify.Fatal("Failed to solve for the QUBO coefficients")
+	}
 	fmt.Printf("Gap = %v\n", gap)
 	outputEvaluation(&p, tt, vals)
 }
