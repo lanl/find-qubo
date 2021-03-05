@@ -6,22 +6,16 @@ import (
 	"flag"
 	"fmt"
 	"os"
-
-	"gonum.org/v1/gonum/mat"
 )
 
 // Parameters is a collection of all program parameters.
 type Parameters struct {
-	TTName  string     // Name of the input truth-table file
-	MinQ    float64    // Minimum quadratic coefficient
-	MaxQ    float64    // Maximum quadratic coefficient
-	MinL    float64    // Minimum linear coefficient
-	MaxL    float64    // Maximum linear coefficient
-	TT      TruthTable // The truth-table proper
-	NCols   int        // Number of columns in the truth table, including ancillae
-	NAnc    int        // Number of ancilla columns
-	RoundTo float64    // Value to which to round all coefficients
-	AllCols *mat.Dense // Matrix with all 2^n columns for n rows
+	TTName  string  // Name of the input truth-table file
+	MinQ    float64 // Minimum quadratic coefficient
+	MaxQ    float64 // Maximum quadratic coefficient
+	MinL    float64 // Minimum linear coefficient
+	MaxL    float64 // Maximum linear coefficient
+	RoundTo float64 // Value to which to round all coefficients
 }
 
 // ParseCommandLine parses parameters from the command line.

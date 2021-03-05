@@ -18,7 +18,7 @@ var notify *log.Logger
 var info *log.Logger
 
 // outputEvaluation pretty-prints the evaluation of all inputs.
-func outputEvaluation(p *Parameters, isValid []bool, eval []float64) {
+func outputEvaluation(p *Parameters, tt TruthTable, eval []float64) {
 	// Map each value to its rank.
 	sorted := make([]float64, len(eval))
 	copy(sorted, eval)
@@ -33,7 +33,7 @@ func outputEvaluation(p *Parameters, isValid []bool, eval []float64) {
 
 	// Tally the number of valid rows.
 	nValid := 0
-	for _, v := range isValid {
+	for _, v := range tt.TT {
 		if v {
 			nValid++
 		}
@@ -45,7 +45,7 @@ func outputEvaluation(p *Parameters, isValid []bool, eval []float64) {
 	for i, v := range eval {
 		// Set validMark to "*" for valid rows, " " for invalid rows.
 		validMark := ' '
-		if isValid[i] {
+		if tt.TT[i] {
 			validMark = '*'
 		}
 
@@ -53,14 +53,14 @@ func outputEvaluation(p *Parameters, isValid []bool, eval []float64) {
 		// ranks.
 		badRank := ' '
 		switch {
-		case isValid[i] && rank[v] > nValid:
+		case tt.TT[i] && rank[v] > nValid:
 			badRank = 'X'
-		case !isValid[i] && rank[v] <= nValid:
+		case !tt.TT[i] && rank[v] <= nValid:
 			badRank = 'X'
 		}
 
 		// Output the current row of the truth table.
-		fmt.Printf("    %0*b %c  %18.15f  %*d %c\n", p.NCols, i, validMark, v, digits, rank[v], badRank)
+		fmt.Printf("    %0*b %c  %18.15f  %*d %c\n", tt.NCols, i, validMark, v, digits, rank[v], badRank)
 	}
 }
 
@@ -72,9 +72,14 @@ func main() {
 	ParseCommandLine(&p)
 
 	// Read the input file.
-	var err error
-	p.TT, err = ReadTruthTable(p.TTName)
+	tt, err := ReadTruthTable(p.TTName)
 	if err != nil {
 		notify.Fatal(err)
 	}
+
+	// Temporary
+	q := NewQUBO(tt.NCols)
+	gap, vals := q.trySolve(&p, tt)
+	fmt.Printf("Gap = %v\n", gap)
+	outputEvaluation(&p, tt, vals)
 }

@@ -29,7 +29,7 @@ func NewQUBO(nv int) *QUBO {
 
 // nVarsToMatrix caches mappings from a variable count, nv, to a matrix of nv
 // rows and 2^nv columns that represents all possible nv-bit vectors.
-var nVarsToMatrix map[int]*mat.Dense
+var nVarsToMatrix = make(map[int]*mat.Dense, 10)
 
 // allPossibleInputs returns a binary matrix containing all possible columns
 // for a given number of rows.
@@ -269,10 +269,9 @@ func (q *QUBO) trySolve(p *Parameters, tt TruthTable) (float64, []float64) {
 	vals := q.EvaluateAllInputs()
 	gap := ComputeGap(vals, tt)
 	if gap <= 0.0 {
-		// False alarm.  The LP solver thinks it solved
-		// the problem, but this was in fact a bogus
-		// solution likely caused by numerical
-		// imprecision.
+		// False alarm.  The LP solver thinks it solved the problem,
+		// but this was in fact a bogus solution likely caused by
+		// numerical imprecision.
 		return 0, nil
 	}
 	return gap, vals
