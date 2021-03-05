@@ -288,7 +288,7 @@ func (q *QUBO) partitionTT(p *Parameters, tt TruthTable) (TruthTable, TruthTable
 		if i < 3 {
 			continue // All three-row truth tables are solvable.
 		}
-		if _, vals := q.trySolve(p, tt); vals == nil {
+		if _, vals := q.trySolve(p, tt0); vals == nil {
 			// Not solvable
 			tt0.TT[r] = false
 			tt1.TT[r] = true
