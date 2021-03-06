@@ -6,6 +6,8 @@ package main
 import (
 	"fmt"
 	"math"
+	"math/bits"
+	"sort"
 	"strings"
 
 	"github.com/lanl/clp"
@@ -277,24 +279,61 @@ func (q *QUBO) trySolve(p *Parameters, tt TruthTable) (float64, []float64) {
 	return gap, vals
 }
 
-// partitionTT partitions a truth table into a solvable truth table and a
-// possibly unsolvable truth table.
-func (q *QUBO) partitionTT(p *Parameters, tt TruthTable) (TruthTable, TruthTable) {
-	vRows := tt.ValidRows()
-	tt0 := NewTruthTable(tt.NCols)
-	tt1 := NewTruthTable(tt.NCols)
-	for i, r := range vRows {
-		tt0.TT[r] = true
-		if i < 3 {
-			continue // All three-row truth tables are solvable.
-		}
-		if _, vals := q.trySolve(p, tt0); vals == nil {
-			// Not solvable
-			tt0.TT[r] = false
-			tt1.TT[r] = true
-		}
+// sortByOneBits sorts the numbers from 0 to 2^n-1 by increasing number of 1
+// bits.
+func sortByOneBits(n int) []int {
+	// Precompute all 1-bit counts.
+	nBits := make([]int, 1<<n)
+	for i := range nBits {
+		nBits[i] = bits.OnesCount(uint(i))
 	}
-	return tt0, tt1
+
+	// Sort the numbers 0 to 2^n-1.
+	nums := make([]int, 1<<n)
+	for i := range nums {
+		nums[i] = i
+	}
+	sort.SliceStable(nums, func(i, j int) bool {
+		return nBits[nums[i]] < nBits[nums[j]]
+	})
+	return nums
+}
+
+// findCoeffsWithAncillae solves for the QUBO coefficients given a specific
+// number of ancillary variables to append to each row of the truth table.  The
+// function returns the augmented truth table, the gap, the QUBO coefficients,
+// and a success code.
+func findCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (TruthTable, float64, []float64, bool) {
+	// Create a truth table extended with ancillary variables and an
+	// associated QUBO.
+	ett := NewTruthTable(tt.NCols + na)
+	q := NewQUBO(ett.NCols)
+
+	// Append one row at a time from the original truth table.
+	bitOrder := sortByOneBits(na)
+	naRows := 1 << na
+	var gap float64
+	var vals []float64
+RowLoop:
+	for _, r := range tt.ValidRows() {
+		// Set as few ancillary bits as necessary.  Experimentation
+		// indicates that this is a good approach for finding a
+		// solution.
+		for _, rOfs := range bitOrder {
+			// Try each bit pattern until one is solvable.
+			ett.TT[r*naRows+rOfs] = true
+			gap, vals = q.trySolve(p, ett)
+			if vals == nil {
+				// Failure: Undo the current ancilla pattern.
+				ett.TT[r*naRows+rOfs] = false
+			} else {
+				// Success: Move on to the next row.
+				continue RowLoop
+			}
+		}
+		return TruthTable{}, 0, nil, false // Failed to add the current row.
+	}
+	return ett, gap, vals, true // Success!
 }
 
 // FindCoefficients solves for the QUBO coefficients, adding ancillary
@@ -302,45 +341,21 @@ func (q *QUBO) partitionTT(p *Parameters, tt TruthTable) (TruthTable, TruthTable
 // that the number of ancillae is minimized.  The function returns the
 // augmented truth table, the gap, the QUBO coefficients, and a success code.
 func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []float64, bool) {
-	tt = tt.Copy() // Don't modify the caller-provided truth table.
-	for na := uint(0); true; na++ {
-		// Return successfully if the current truth table is solvable.
-		q := NewQUBO(tt.NCols)
-		gap, vals := q.trySolve(p, tt)
-		if vals != nil {
-			return tt, gap, vals, true
-		}
-
-		// Fail if the current truth table is not solvable but we're
-		// not allowed to add any more variables.
-		if na == p.MaxAncillae {
-			return TruthTable{}, 0.0, nil, false
-		}
-
-		// Partition the truth table into a solvable truth table and a
-		// possibly unsolvable truth table.
-		tt0, tt1 := q.partitionTT(p, tt)
-
-		// Extend the truth table by one bit on the right.
-		ett := NewTruthTable(tt.NCols + 1)
-
-		// Append 0 bits to the first table's rows (e.g., if "010" was
-		// valid in tt0, then "0100" becomes valid in ett).
-		vr0 := tt0.ValidRows()
-		for _, r := range vr0 {
-			ett.TT[r*2] = true
-		}
-
-		// Append 1 bits to the second table's rows (e.g., if "010" was
-		// valid in tt1, then "0101" becomes valid in ett).
-		vr1 := tt1.ValidRows()
-		for _, r := range vr1 {
-			ett.TT[r*2+1] = true
-		}
-
-		// Replace the current truth table with the extended truth table.
-		tt = ett
-		info.Printf("Increasing the number of ancillae from %d to %d", na, na+1)
+	// First check if the truth table is solvable without introducing any
+	// ancillae.
+	q := NewQUBO(tt.NCols)
+	gap, vals := q.trySolve(p, tt)
+	if vals != nil {
+		return tt.Copy(), gap, vals, true
 	}
-	return TruthTable{}, 0, nil, false // We should never reach this line.
+
+	// Repeatedly increase the number of ancillae until we find a solution.
+	for na := 1; na <= int(p.MaxAncillae); na++ {
+		info.Printf("Increasing the number of ancillae to %d (%d total truth-table rows)", na, 1<<(tt.NCols+na))
+		ett, gap, vals, ok := findCoeffsWithAncillae(p, tt, na)
+		if ok {
+			return ett, gap, vals, ok // Success!
+		}
+	}
+	return TruthTable{}, 0.0, nil, false // Failure
 }
