@@ -279,24 +279,19 @@ func (q *QUBO) trySolve(p *Parameters, tt TruthTable) (float64, []float64) {
 	return gap, vals
 }
 
-// sortByOneBits sorts the numbers from 0 to 2^n-1 by increasing number of 1
-// bits.
-func sortByOneBits(n int) []int {
+// sortByOneBits sorts a given list of numbers by increasing number of 1 bits.
+func sortByOneBits(nums []int) {
 	// Precompute all 1-bit counts.
-	nBits := make([]int, 1<<n)
-	for i := range nBits {
-		nBits[i] = bits.OnesCount(uint(i))
+	n := len(nums)
+	nBits := make(map[int]int, n)
+	for _, v := range nums {
+		nBits[v] = bits.OnesCount(uint(v))
 	}
 
-	// Sort the numbers 0 to 2^n-1.
-	nums := make([]int, 1<<n)
-	for i := range nums {
-		nums[i] = i
-	}
+	// Sort the numbers.
 	sort.SliceStable(nums, func(i, j int) bool {
 		return nBits[nums[i]] < nBits[nums[j]]
 	})
-	return nums
 }
 
 // findCoeffsWithAncillae solves for the QUBO coefficients given a specific
@@ -309,17 +304,21 @@ func findCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (TruthTable, f
 	ett := NewTruthTable(tt.NCols + na)
 	q := NewQUBO(ett.NCols)
 
-	// Append one row at a time from the original truth table.
-	bitOrder := sortByOneBits(na)
+	// Sort the list of valid rows by increasing number of bits.
+	// Experimentation indicates that this is a good approach for finding a
+	// solution.
+	rows := tt.ValidRows()
+	sortByOneBits(rows)
+
+	// Append one row at a time from the original truth table to the
+	// extended truth table.
 	naRows := 1 << na
 	var gap float64
 	var vals []float64
 RowLoop:
-	for _, r := range tt.ValidRows() {
-		// Set as few ancillary bits as necessary.  Experimentation
-		// indicates that this is a good approach for finding a
-		// solution.
-		for _, rOfs := range bitOrder {
+	for _, r := range rows {
+		// Try in turn each possible set of ancillary variables.
+		for rOfs := 0; rOfs < naRows; rOfs++ {
 			// Try each bit pattern until one is solvable.
 			ett.TT[r*naRows+rOfs] = true
 			gap, vals = q.trySolve(p, ett)
