@@ -4,11 +4,9 @@
 package main
 
 import (
-	"fmt"
 	"math"
 	"math/bits"
 	"sort"
-	"strings"
 
 	"github.com/lanl/clp"
 	"gonum.org/v1/gonum/mat"
@@ -83,33 +81,6 @@ func (q *QUBO) EvaluateAllInputs() []float64 {
 		vals[r] = m.At(0, 0)
 	}
 	return vals
-}
-
-// AsOctaveMatrix returns the coefficients as a string that can be pasted into
-// GNU Octave or MATLAB.
-func (q *QUBO) AsOctaveMatrix() string {
-	n := q.NVars
-	i := q.NVars
-	oct := make([]string, n)
-	for r := 0; r < n; r++ {
-		row := make([]string, n)
-		for c := 0; c < n; c++ {
-			switch {
-			case c < r:
-				// Not in upper triangle
-				row[c] = "0"
-			case c == r:
-				// Linear term
-				row[c] = fmt.Sprint(q.Coeffs[c])
-			default:
-				// Quadratic term
-				row[c] = fmt.Sprint(q.Coeffs[i])
-				i++
-			}
-		}
-		oct[r] = strings.Join(row, " ")
-	}
-	return "[" + strings.Join(oct, " ; ") + "]"
 }
 
 // LPSolve uses a linear-programming algorithm to re-optimize a QUBO's
@@ -296,9 +267,9 @@ func sortByOneBits(nums []int) {
 
 // findCoeffsWithAncillae solves for the QUBO coefficients given a specific
 // number of ancillary variables to append to each row of the truth table.  The
-// function returns the augmented truth table, the gap, the QUBO coefficients,
-// and a success code.
-func findCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (TruthTable, float64, []float64, bool) {
+// function returns the augmented truth table, the gap, the truth-table row
+// values, the QUBO coefficients, and a success code.
+func findCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (TruthTable, float64, []float64, []float64, bool) {
 	// Create a truth table extended with ancillary variables and an
 	// associated QUBO.
 	ett := NewTruthTable(tt.NCols + na)
@@ -330,31 +301,32 @@ RowLoop:
 				continue RowLoop
 			}
 		}
-		return TruthTable{}, 0, nil, false // Failed to add the current row.
+		return TruthTable{}, 0, nil, nil, false // Failed to add the current row.
 	}
-	return ett, gap, vals, true // Success!
+	return ett, gap, vals, q.Coeffs, true // Success!
 }
 
 // FindCoefficients solves for the QUBO coefficients, adding ancillary
 // variables as necessary.  It uses a greedy algorithm and does not guarantee
 // that the number of ancillae is minimized.  The function returns the
-// augmented truth table, the gap, the QUBO coefficients, and a success code.
-func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []float64, bool) {
+// augmented truth table, the gap, the truth-table row values, the QUBO
+// coefficients, and a success code.
+func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []float64, []float64, bool) {
 	// First check if the truth table is solvable without introducing any
 	// ancillae.
 	q := NewQUBO(tt.NCols)
 	gap, vals := q.trySolve(p, tt)
 	if vals != nil {
-		return tt.Copy(), gap, vals, true
+		return tt.Copy(), gap, vals, q.Coeffs, true
 	}
 
 	// Repeatedly increase the number of ancillae until we find a solution.
 	for na := 1; na <= int(p.MaxAncillae); na++ {
 		info.Printf("Increasing the number of ancillae to %d (%d total truth-table rows)", na, 1<<(tt.NCols+na))
-		ett, gap, vals, ok := findCoeffsWithAncillae(p, tt, na)
+		ett, gap, vals, coeffs, ok := findCoeffsWithAncillae(p, tt, na)
 		if ok {
-			return ett, gap, vals, ok // Success!
+			return ett, gap, vals, coeffs, ok // Success!
 		}
 	}
-	return TruthTable{}, 0.0, nil, false // Failure
+	return TruthTable{}, 0.0, nil, nil, false // Failure
 }

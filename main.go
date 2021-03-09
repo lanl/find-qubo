@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime/pprof"
 	"sort"
+	"strings"
 )
 
 // notify is used to output error messages.
@@ -65,6 +66,31 @@ func outputEvaluation(p *Parameters, tt TruthTable, eval []float64) {
 	}
 }
 
+// Return a list of coefficients as GNU Octave or MATLAB matrix input.
+func coeffsToOctave(n int, coeffs []float64) string {
+	oct := make([]string, n)
+	i := n
+	for r := 0; r < n; r++ {
+		row := make([]string, n)
+		for c := 0; c < n; c++ {
+			switch {
+			case c < r:
+				// Not in upper triangle
+				row[c] = "0"
+			case c == r:
+				// Linear term
+				row[c] = fmt.Sprint(coeffs[c])
+			default:
+				// Quadratic term
+				row[c] = fmt.Sprint(coeffs[i])
+				i++
+			}
+		}
+		oct[r] = strings.Join(row, " ")
+	}
+	return "[" + strings.Join(oct, " ; ") + "]"
+}
+
 func main() {
 	// Initialize program parameters.
 	notify = log.New(os.Stderr, os.Args[0]+": ", 0)
@@ -90,10 +116,11 @@ func main() {
 	}
 
 	// Solve for the QUBO coefficients that maximize the gap.
-	tt, gap, vals, ok := FindCoefficients(&p, tt)
+	tt, gap, vals, coeffs, ok := FindCoefficients(&p, tt)
 	if !ok {
 		notify.Fatal("Failed to solve for the QUBO coefficients")
 	}
+	fmt.Printf("QUBO = %s\n", coeffsToOctave(tt.NCols, coeffs))
 	fmt.Printf("Gap = %v\n", gap)
 	outputEvaluation(&p, tt, vals)
 }
