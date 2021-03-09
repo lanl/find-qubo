@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime/pprof"
 	"sort"
 )
 
@@ -75,6 +76,17 @@ func main() {
 	tt, err := ReadTruthTable(p.TTName)
 	if err != nil {
 		notify.Fatal(err)
+	}
+
+	// Begin a performance profile.
+	if p.ProfName != "" {
+		f, err := os.Create(p.ProfName)
+		if err != nil {
+			notify.Fatal(err)
+		}
+		defer f.Close()
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
 	}
 
 	// Solve for the QUBO coefficients that maximize the gap.
