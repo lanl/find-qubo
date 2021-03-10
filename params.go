@@ -18,6 +18,7 @@ type Parameters struct {
 	RoundTo     float64 // Value to which to round all coefficients
 	MaxAncillae uint    // Maximum number of additional variables we're allowed to add
 	ProfName    string  // Name of a pprof performance-profile file
+	Tolerance   float64 // Smallest-in-magnitude values for the LP solver to consider nonzero
 }
 
 // ParseCommandLine parses parameters from the command line.
@@ -34,6 +35,7 @@ func ParseCommandLine(p *Parameters) {
 	flag.Float64Var(&p.RoundTo, "round", 0, "Value to which to round coefficients or 0 for no rounding")
 	flag.UintVar(&p.MaxAncillae, "max-ancillae", 10, "Maximum number of ancilllary variables the program is allowed to add")
 	flag.StringVar(&p.ProfName, "profile", "", "Name of a pprof performance file to write")
+	flag.Float64Var(&p.Tolerance, "tolerance", 1e-10, "Smallest-in-magnitude values for the LP solver to consider nonzero")
 	flag.Parse()
 	if flag.NArg() >= 1 {
 		p.TTName = flag.Arg(0)
@@ -55,5 +57,7 @@ func ParseCommandLine(p *Parameters) {
 		notify.Fatal("--qmax must be positive")
 	case p.RoundTo < 0.0:
 		notify.Fatal("--round must be non-negative")
+	case p.Tolerance < 0.0:
+		notify.Fatal("--tolerance must be non-negative")
 	}
 }

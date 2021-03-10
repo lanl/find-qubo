@@ -90,7 +90,7 @@ func (q *QUBO) LPSolve(p *Parameters, tt TruthTable) bool {
 	// Because CLP supports only "a >= b", not "a > b", we define
 	// epsilon as a small number and solve "a >= b + epsilon".
 	simp := clp.NewSimplex()
-	simp.SetPrimalTolerance(1e-10)
+	simp.SetPrimalTolerance(p.Tolerance)
 	epsilon := simp.PrimalTolerance()
 
 	// Define multipliers for each linear term's coefficients.  Each
