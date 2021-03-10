@@ -87,6 +87,12 @@ func (q *QUBO) EvaluateAllInputs() []float64 {
 // coefficients in search of perfect balance of all valid rows.  This method
 // returns a success code.
 func (q *QUBO) LPSolve(p *Parameters, tt TruthTable) bool {
+	// Because CLP supports only "a >= b", not "a > b", we define
+	// epsilon as a small number and solve "a >= b + epsilon".
+	simp := clp.NewSimplex()
+	simp.SetPrimalTolerance(1e-10)
+	epsilon := simp.PrimalTolerance()
+
 	// Define multipliers for each linear term's coefficients.  Each
 	// multiplier will be either 0.0 (omitted) or 1.0.
 	mat := clp.NewPackedMatrix()
@@ -161,7 +167,7 @@ func (q *QUBO) LPSolve(p *Parameters, tt TruthTable) bool {
 	// Bound valid rows to [0, 0] and invalid rows to [epsilon, infinity].
 	rb := make([]clp.Bounds, nr)
 	positive := clp.Bounds{
-		Lower: 1e-30, // Arbitrary small number, much larger than machine epsilon
+		Lower: epsilon,
 		Upper: math.Inf(1),
 	}
 	for r, v := range tt.TT {
@@ -197,7 +203,6 @@ func (q *QUBO) LPSolve(p *Parameters, tt TruthTable) bool {
 	obj[nc+1] = 1.0
 
 	// Solve the maximization problem.
-	simp := clp.NewSimplex()
 	simp.LoadProblem(mat, cb, obj, rb, nil)
 	simp.SetOptimizationDirection(clp.Maximize)
 	if simp.Primal(clp.NoValuesPass, clp.NoStartFinishOptions) != clp.Optimal {
