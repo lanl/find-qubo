@@ -7,6 +7,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"runtime/pprof"
 	"sort"
@@ -41,9 +42,20 @@ func outputEvaluation(p *Parameters, tt TruthTable, eval []float64) {
 		}
 	}
 
+	// Determine the number of digits before the decimal place.
+	maxMag := 0.0
+	for _, v := range []float64{p.MinL, p.MaxL, p.MinQ, p.MaxQ} {
+		v = math.Abs(v)
+		if v > maxMag {
+			maxMag = v
+		}
+	}
+	nWhole := int(math.Ceil(math.Log10(maxMag))) + 1 // Digits before the decimal place
+	const nFrac = 15                                 // Digits after the decimal place
+
 	// Output each input string, output value, and rank.
 	fmt.Println("Complete evaluation:")
-	digits := len(fmt.Sprintf("%d", len(eval)+1))
+	rDigits := len(fmt.Sprintf("%d", len(eval)+1)) // Rank digits
 	for i, v := range eval {
 		// Set validMark to "*" for valid rows, " " for invalid rows.
 		validMark := ' '
@@ -62,7 +74,12 @@ func outputEvaluation(p *Parameters, tt TruthTable, eval []float64) {
 		}
 
 		// Output the current row of the truth table.
-		fmt.Printf("    %0*b %c  %18.15f  %*d %c\n", tt.NCols, i, validMark, v, digits, rank[v], badRank)
+		fmt.Printf("    %0*b %c  %*.*f  %*d %c\n",
+			tt.NCols, i,
+			validMark,
+			1+nWhole+1+nFrac, nFrac, v,
+			rDigits, rank[v],
+			badRank)
 	}
 }
 
