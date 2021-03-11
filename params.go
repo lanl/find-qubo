@@ -19,6 +19,7 @@ type Parameters struct {
 	MaxAncillae uint    // Maximum number of additional variables we're allowed to add
 	ProfName    string  // Name of a pprof performance-profile file
 	Tolerance   float64 // Smallest-in-magnitude values for the LP solver to consider nonzero
+	NumLPSolves uint64  // Tally of the number of LP solver invocations
 }
 
 // ParseCommandLine parses parameters from the command line.

@@ -7,6 +7,8 @@ import (
 	"math"
 	"math/bits"
 	"sort"
+	"sync/atomic"
+	"time"
 
 	"github.com/lanl/clp"
 	"gonum.org/v1/gonum/mat"
@@ -231,6 +233,8 @@ func ComputeGap(vals []float64, tt TruthTable) float64 {
 // trySolve attempts to solve for a QUBO's coefficients.  It returns the
 // invalid-valid gap and row values.
 func (q *QUBO) trySolve(p *Parameters, tt TruthTable) (float64, []float64) {
+	// Run the solver.  Keep track of the number of invocations.
+	atomic.AddUint64(&p.NumLPSolves, 1)
 	if !q.LPSolve(p, tt) {
 		return 0, nil
 	}
@@ -332,7 +336,11 @@ func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []floa
 	// First check if the truth table is solvable without introducing any
 	// ancillae.
 	q := NewQUBO(tt.NCols)
+	sTime := time.Now()
 	gap, vals := q.trySolve(p, tt)
+	eTime := time.Since(sTime)
+	info.Printf("Performed %d LP solve in %d ms",
+		p.NumLPSolves, eTime.Milliseconds())
 	if vals != nil {
 		return tt.Copy(), gap, vals, q.Coeffs, true
 	}
@@ -340,7 +348,12 @@ func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []floa
 	// Repeatedly increase the number of ancillae until we find a solution.
 	for na := 1; na <= int(p.MaxAncillae); na++ {
 		info.Printf("Increasing the number of ancillae to %d (%d total truth-table rows)", na, 1<<(tt.NCols+na))
+		prevLP := p.NumLPSolves
+		sTime := time.Now()
 		ett, gap, vals, coeffs, ok := findCoeffsWithAncillae(p, tt, na)
+		eTime := time.Since(sTime)
+		info.Printf("Performed %d LP solves in %d ms",
+			p.NumLPSolves-prevLP, eTime.Milliseconds())
 		if ok {
 			return ett, gap, vals, coeffs, ok // Success!
 		}

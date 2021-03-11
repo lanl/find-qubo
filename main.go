@@ -12,6 +12,7 @@ import (
 	"runtime/pprof"
 	"sort"
 	"strings"
+	"time"
 )
 
 // notify is used to output error messages.
@@ -133,7 +134,11 @@ func main() {
 	}
 
 	// Solve for the QUBO coefficients that maximize the gap.
+	sTime := time.Now()
 	tt, gap, vals, coeffs, ok := FindCoefficients(&p, tt)
+	eTime := time.Since(sTime)
+	info.Printf("Performed a total of %d LP solves in %d ms",
+		p.NumLPSolves, eTime.Milliseconds())
 	if !ok {
 		notify.Fatal("Failed to solve for the QUBO coefficients")
 	}
