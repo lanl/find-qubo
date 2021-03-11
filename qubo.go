@@ -280,21 +280,33 @@ func findCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (TruthTable, f
 	ett := NewTruthTable(tt.NCols + na)
 	q := NewQUBO(ett.NCols)
 
-	// Sort the list of valid rows by increasing number of bits.
-	// Experimentation indicates that this is a good approach for finding a
-	// solution.
+	// Sort the list of valid rows by increasing number of 1 bits.
+	// Experimentation indicates that this may be a good approach for
+	// finding a solution.
 	rows := tt.ValidRows()
 	sortByOneBits(rows)
 
+	// Sort the numbers [0, naRows) by decreasing number of 1 bits.
+	// Experimentation indicates that this may be a good approach for
+	// finding a solution.
+	naRows := 1 << na
+	rowOfs := make([]int, naRows)
+	for i := range rowOfs {
+		rowOfs[i] = i
+	}
+	sortByOneBits(rowOfs)
+	for i := 0; i < naRows/2; i++ {
+		rowOfs[i], rowOfs[naRows-i-1] = rowOfs[naRows-i-1], rowOfs[i]
+	}
+
 	// Append one row at a time from the original truth table to the
 	// extended truth table.
-	naRows := 1 << na
 	var gap float64
 	var vals []float64
 RowLoop:
 	for _, r := range rows {
 		// Try in turn each possible set of ancillary variables.
-		for rOfs := 0; rOfs < naRows; rOfs++ {
+		for _, rOfs := range rowOfs {
 			// Try each bit pattern until one is solvable.
 			ett.TT[r*naRows+rOfs] = true
 			gap, vals = q.trySolve(p, ett)
