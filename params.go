@@ -20,6 +20,7 @@ type Parameters struct {
 	ProfName    string  // Name of a pprof performance-profile file
 	Tolerance   float64 // Smallest-in-magnitude values for the LP solver to consider nonzero
 	NumLPSolves uint64  // Tally of the number of LP solver invocations
+	BruteForce  bool    // true: brute-force ancilla finder; false=smart ancilla finder
 }
 
 // ParseCommandLine parses parameters from the command line.
@@ -37,6 +38,7 @@ func ParseCommandLine(p *Parameters) {
 	flag.UintVar(&p.MaxAncillae, "max-ancillae", 10, "Maximum number of ancilllary variables the program is allowed to add")
 	flag.StringVar(&p.ProfName, "profile", "", "Name of a pprof performance file to write")
 	flag.Float64Var(&p.Tolerance, "tolerance", 1e-10, "Smallest-in-magnitude values for the LP solver to consider nonzero")
+	flag.BoolVar(&p.BruteForce, "brute-force", false, "Find ancillae using a brute-force search instead of a heuristic search")
 	flag.Parse()
 	if flag.NArg() >= 1 {
 		p.TTName = flag.Arg(0)

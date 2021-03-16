@@ -259,6 +259,71 @@ func (q *QUBO) trySolve(p *Parameters, tt TruthTable) (float64, []float64) {
 	return gap, vals
 }
 
+// allPossibleAncillae returns all length-N sequences of the numbers [0, k-1].
+func allPossibleAncillae(n, k int) chan []int {
+	ch := make(chan []int, 16)
+	var tryNext func(work []int, idx int)
+	tryNext = func(work []int, idx int) {
+		// When the work slice is fully populated, send the final
+		// sequence down the channel.
+		if idx < 0 {
+			final := make([]int, n)
+			copy(final, work)
+			ch <- final
+			return
+		}
+
+		// Otherwise, try all possibilities for index idx, and
+		// recursively try indices [0, idx-1].
+		for v := 0; v < k; v++ {
+			work[idx] = v
+			tryNext(work, idx-1)
+		}
+	}
+	go func() {
+		tryNext(make([]int, n), n-1)
+		close(ch)
+	}()
+	return ch
+}
+
+// bruteForceFindCoeffsWithAncillae uses a brute-force technique to solve for
+// the QUBO coefficients given a specific number of ancillary variables to
+// append to each row of the truth table.  The function returns the augmented
+// truth table, the gap, the truth-table row values, the QUBO coefficients, and
+// a success code.
+func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (TruthTable, float64, []float64, []float64, bool) {
+	// Create a truth table extended with ancillary variables and an
+	// associated QUBO.
+	ett := NewTruthTable(tt.NCols + na)
+	q := NewQUBO(ett.NCols)
+
+	// Lazily produce a list of all valid ancilla assignments to valid
+	// truth-table rows.
+	rows := tt.ValidRows()
+	sortByOneBits(rows)
+	naRows := 1 << na
+	ch := allPossibleAncillae(len(rows), naRows)
+
+	// Try in turn each possible set of ancillary variables.
+	for ancs := range ch {
+		// Set all ancillae according to ancs.
+		ett.Clear()
+		for i, r := range rows {
+			rOfs := ancs[i]
+			ett.TT[r*naRows+rOfs] = true
+		}
+
+		// See if the current configuration is solvable.
+		gap, vals := q.trySolve(p, ett)
+		if vals != nil {
+			// Success!
+			return ett, gap, vals, q.Coeffs, true
+		}
+	}
+	return TruthTable{}, 0, nil, nil, false // Failure
+}
+
 // sortByOneBits sorts a given list of numbers by increasing number of 1 bits.
 func sortByOneBits(nums []int) {
 	// Precompute all 1-bit counts.
@@ -350,7 +415,16 @@ func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []floa
 		info.Printf("Increasing the number of ancillae to %d (%d total truth-table rows)", na, 1<<(tt.NCols+na))
 		prevLP := p.NumLPSolves
 		sTime := time.Now()
-		ett, gap, vals, coeffs, ok := findCoeffsWithAncillae(p, tt, na)
+		var ett TruthTable   // Extended truth table
+		var gap float64      // Minimal gap between valid and invalid rows
+		var vals []float64   // QUBO evaluation on every possible input
+		var coeffs []float64 // QUBO coefficients
+		var ok bool          // Success code
+		if p.BruteForce {
+			ett, gap, vals, coeffs, ok = bruteForceFindCoeffsWithAncillae(p, tt, na)
+		} else {
+			ett, gap, vals, coeffs, ok = findCoeffsWithAncillae(p, tt, na)
+		}
 		eTime := time.Since(sTime)
 		info.Printf("Performed %d LP solves in %d ms",
 			p.NumLPSolves-prevLP, eTime.Milliseconds())

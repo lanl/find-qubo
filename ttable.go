@@ -36,6 +36,13 @@ func (tt TruthTable) Copy() TruthTable {
 	return ttc
 }
 
+// Clear marks all truth-table rows as invalid.
+func (tt TruthTable) Clear() {
+	for i := range tt.TT {
+		tt.TT[i] = false
+	}
+}
+
 // parseRow parses a single row of Booleans, specified in a flexible manner,
 // into a binary numbers.  It returns both the number and the total number of
 // bits on the line.
