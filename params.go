@@ -20,7 +20,46 @@ type Parameters struct {
 	ProfName    string  // Name of a pprof performance-profile file
 	Tolerance   float64 // Smallest-in-magnitude values for the LP solver to consider nonzero
 	NumLPSolves uint64  // Tally of the number of LP solver invocations
-	BruteForce  bool    // true: brute-force ancilla finder; false=smart ancilla finder
+	Approach ReductionApproach // How to reduce the exponential search space
+}
+
+// A ReductionApproach defines an approach to reduce the search space.
+type ReductionApproach int
+
+// These are the acceptable values for a ReductionApproach.
+const (
+	ReduceHeuristic     ReductionApproach = iota // Use a heuristic approach.
+	ReduceBruteForce                             // Try all possibilities until one succeeds.
+	ReduceBruteForceAll                          // Try all possibilities and tally successes/failures.
+)
+
+// String returns a ReductionApproach as a string.
+func (ra *ReductionApproach) String() string {
+	switch *ra {
+	case ReduceHeuristic:
+		return "heuristic"
+	case ReduceBruteForce:
+		return "brute-force"
+	case ReduceBruteForceAll:
+		return "full-brute-force"
+	default:
+		panic(fmt.Sprintf("unexpected ReductionApproach %d", *ra))
+	}
+}
+
+// Set assigns a ReductionApproach from a string.
+func (ra *ReductionApproach) Set(s string) error {
+	switch s {
+	case "heuristic":
+		*ra = ReduceHeuristic
+	case "brute-force":
+		*ra = ReduceBruteForce
+	case "full-brute-force":
+		*ra = ReduceBruteForceAll
+	default:
+		return fmt.Errorf("unexpected reduction approach %q", s)
+	}
+	return nil
 }
 
 // ParseCommandLine parses parameters from the command line.
@@ -38,7 +77,7 @@ func ParseCommandLine(p *Parameters) {
 	flag.UintVar(&p.MaxAncillae, "max-ancillae", 10, "Maximum number of ancilllary variables the program is allowed to add")
 	flag.StringVar(&p.ProfName, "profile", "", "Name of a pprof performance file to write")
 	flag.Float64Var(&p.Tolerance, "tolerance", 1e-10, "Smallest-in-magnitude values for the LP solver to consider nonzero")
-	flag.BoolVar(&p.BruteForce, "brute-force", false, "Find ancillae using a brute-force search instead of a heuristic search")
+	flag.Var(&p.Approach, "approach", `Approach to reducing the search space, one of "heuristic", "brute-force", or "full-brute-force" (default: heuristic)`)
 	flag.Parse()
 	if flag.NArg() >= 1 {
 		p.TTName = flag.Arg(0)

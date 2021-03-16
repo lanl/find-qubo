@@ -4,8 +4,10 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"math/bits"
+	"math/rand"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -298,10 +300,27 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 	ett := NewTruthTable(tt.NCols + na)
 	q := NewQUBO(ett.NCols)
 
+	// Declare the values we intend to return.
+	type RetVals struct {
+		tt     TruthTable
+		gap    float64
+		vals   []float64
+		coeffs []float64
+		ok     bool
+	}
+	var rv RetVals
+	var solved [2]uint64 // Tally of failures and tally of successes
+	const (
+		Failure = iota
+		Success
+	)
+
 	// Lazily produce a list of all valid ancilla assignments to valid
 	// truth-table rows.
 	rows := tt.ValidRows()
-	sortByOneBits(rows)
+	rand.Shuffle(len(rows), func(i, j int) {
+		rows[i], rows[j] = rows[j], rows[i]
+	})
 	naRows := 1 << na
 	ch := allPossibleAncillae(len(rows), naRows)
 
@@ -316,12 +335,32 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 
 		// See if the current configuration is solvable.
 		gap, vals := q.trySolve(p, ett)
-		if vals != nil {
+		if vals == nil {
+			// Failed
+			solved[Failure]++
+		} else {
 			// Success!
-			return ett, gap, vals, q.Coeffs, true
+			rv = RetVals{
+				tt:     ett.Copy(),
+				gap:    gap,
+				vals:   vals,
+				coeffs: make([]float64, len(q.Coeffs)),
+				ok:     true,
+			}
+			copy(rv.coeffs, q.Coeffs)
+			solved[Success]++
+			if p.Approach == ReduceBruteForce {
+				break
+			}
 		}
 	}
-	return TruthTable{}, 0, nil, nil, false // Failure
+
+	// Return what we found, either success or failure.
+	if p.Approach == ReduceBruteForceAll {
+		info.Printf("Brute-force statistics: %d solvable, %d not solvable",
+			solved[Success], solved[Failure])
+	}
+	return rv.tt, rv.gap, rv.vals, rv.coeffs, rv.ok
 }
 
 // sortByOneBits sorts a given list of numbers by increasing number of 1 bits.
@@ -420,10 +459,13 @@ func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []floa
 		var vals []float64   // QUBO evaluation on every possible input
 		var coeffs []float64 // QUBO coefficients
 		var ok bool          // Success code
-		if p.BruteForce {
-			ett, gap, vals, coeffs, ok = bruteForceFindCoeffsWithAncillae(p, tt, na)
-		} else {
+		switch p.Approach {
+		case ReduceHeuristic:
 			ett, gap, vals, coeffs, ok = findCoeffsWithAncillae(p, tt, na)
+		case ReduceBruteForce, ReduceBruteForceAll:
+			ett, gap, vals, coeffs, ok = bruteForceFindCoeffsWithAncillae(p, tt, na)
+		default:
+			panic(fmt.Sprintf("unexpected reduction approach %d", p.Approach))
 		}
 		eTime := time.Since(sTime)
 		info.Printf("Performed %d LP solves in %d ms",
