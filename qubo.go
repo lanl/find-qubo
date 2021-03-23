@@ -325,8 +325,10 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 	ch := allPossibleAncillae(len(rows), naRows)
 
 	// Try in turn each possible set of ancillary variables.
+	nCfg := 0
 	for ancs := range ch {
 		// Set all ancillae according to ancs.
+		nCfg++
 		ett.Clear()
 		for i, r := range rows {
 			rOfs := ancs[i]
@@ -351,6 +353,8 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 			solved[Success]++
 			if p.Approach == ReduceBruteForce {
 				break
+			} else {
+				info.Printf("    Solved %d of %d configurations", solved[Success], nCfg)
 			}
 		}
 	}
