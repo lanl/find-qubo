@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand"
 	"os"
 	"runtime/pprof"
 	"sort"
@@ -116,6 +117,24 @@ func main() {
 	var p Parameters
 	ParseCommandLine(&p)
 
+	// Initialize MPI.
+	MPIInit()
+	defer MPIFinalize()
+	p.NumRanks = MPICommSize()
+	p.Rank = MPICommRank()
+	switch {
+	case p.Rank != 0:
+	case p.NumRanks == 1:
+		info.Print("Running with 1 MPI rank")
+	default:
+		info.Printf("Running with %d MPI ranks", p.NumRanks)
+	}
+
+	// Seed the random-number generator.
+	seed := int(time.Now().UnixNano())
+	seed = MPIBcastInt(seed)
+	rand.Seed(int64(seed))
+
 	// Read the input file.
 	tt, err := ReadTruthTable(p.TTName)
 	if err != nil {
@@ -124,7 +143,11 @@ func main() {
 
 	// Begin a performance profile.
 	if p.ProfName != "" {
-		f, err := os.Create(p.ProfName)
+		pName := p.ProfName
+		if strings.Contains(pName, "%") {
+			pName = fmt.Sprintf(pName, p.Rank)
+		}
+		f, err := os.Create(pName)
 		if err != nil {
 			notify.Fatal(err)
 		}
@@ -137,12 +160,15 @@ func main() {
 	sTime := time.Now()
 	tt, gap, vals, coeffs, ok := FindCoefficients(&p, tt)
 	eTime := time.Since(sTime)
-	info.Printf("Performed a total of %d LP solves in %d ms",
-		p.NumLPSolves, eTime.Milliseconds())
-	if !ok {
-		notify.Fatal("Failed to solve for the QUBO coefficients")
+	nSolves := MPIReduceInts(MPIOpSum, []int{int(p.NumLPSolves)})
+	if p.Rank == 0 {
+		info.Printf("Performed a total of %d LP solves in %d ms",
+			nSolves[0], eTime.Milliseconds())
+		if !ok {
+			notify.Fatal("Failed to solve for the QUBO coefficients")
+		}
+		fmt.Printf("QUBO = %s\n", coeffsToOctave(tt.NCols, coeffs))
+		fmt.Printf("Gap = %v\n", gap)
+		outputEvaluation(&p, tt, vals)
 	}
-	fmt.Printf("QUBO = %s\n", coeffsToOctave(tt.NCols, coeffs))
-	fmt.Printf("Gap = %v\n", gap)
-	outputEvaluation(&p, tt, vals)
 }

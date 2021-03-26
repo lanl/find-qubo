@@ -309,7 +309,7 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 		ok     bool
 	}
 	var rv RetVals
-	var solved [2]uint64 // Tally of failures and tally of successes
+	var solved [2]int // Tally of failures and tally of successes
 	const (
 		Failure = iota
 		Success
@@ -326,7 +326,14 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 
 	// Try in turn each possible set of ancillary variables.
 	nCfg := 0
+	idx := -1
 	for ancs := range ch {
+		// Skip N-1 out of N sets based on our MPI rank.
+		idx++
+		if idx%p.NumRanks != p.Rank {
+			continue
+		}
+
 		// Set all ancillae according to ancs.
 		nCfg++
 		ett.Clear()
@@ -354,15 +361,22 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 			if p.Approach == ReduceBruteForce {
 				break
 			} else {
-				info.Printf("    Solved %d of %d configurations", solved[Success], nCfg)
+				sc := []int{solved[Success], nCfg}
+				succCfg := MPIReduceInts(MPIOpSum, sc)
+				if p.Rank == 0 {
+					info.Printf("    Solved %d of %d configurations", succCfg[0], succCfg[1])
+				}
 			}
 		}
 	}
 
 	// Return what we found, either success or failure.
 	if p.Approach == ReduceBruteForceAll {
-		info.Printf("Brute-force statistics: %d solvable, %d not solvable",
-			solved[Success], solved[Failure])
+		fs := []int{solved[Failure], solved[Success]}
+		allSolved := MPIReduceInts(MPIOpSum, fs)
+		if p.Rank == 0 {
+			info.Printf("Brute-force statistics: %d solvable, %d not solvable", allSolved[Success], allSolved[Failure])
+		}
 	}
 	return rv.tt, rv.gap, rv.vals, rv.coeffs, rv.ok
 }
@@ -435,6 +449,35 @@ RowLoop:
 	return ett, gap, vals, q.Coeffs, true // Success!
 }
 
+// sendTT sends a truth table from one rank to another.
+func sendTT(p *Parameters, tt TruthTable, from, to int) TruthTable {
+	// Do nothing if we're not involved in the communication.
+	if from == to {
+		return tt
+	}
+	if p.Rank != from && p.Rank != to {
+		return tt
+	}
+
+	// Convert the truth table from Booleans to integers and send it.
+	ttInts := make([]int, len(tt.TT))
+	if p.Rank == from {
+		for i, b := range tt.TT {
+			if b {
+				ttInts[i] = 1
+			}
+		}
+		MPISendInts(ttInts, to)
+	} else {
+		MPIRecvInts(ttInts, from)
+		tt = tt.Copy()
+		for i, v := range ttInts {
+			tt.TT[i] = v == 1
+		}
+	}
+	return tt
+}
+
 // FindCoefficients solves for the QUBO coefficients, adding ancillary
 // variables as necessary.  It uses a greedy algorithm and does not guarantee
 // that the number of ancillae is minimized.  The function returns the
@@ -447,16 +490,20 @@ func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []floa
 	sTime := time.Now()
 	gap, vals := q.trySolve(p, tt)
 	eTime := time.Since(sTime)
-	info.Printf("Performed %d LP solve in %d ms",
-		p.NumLPSolves, eTime.Milliseconds())
+	if p.Rank == 0 {
+		info.Printf("Performed 1 LP solve in %d ms", eTime.Milliseconds())
+	}
 	if vals != nil {
 		return tt.Copy(), gap, vals, q.Coeffs, true
 	}
 
 	// Repeatedly increase the number of ancillae until we find a solution.
+	var prevLP uint64
 	for na := 1; na <= int(p.MaxAncillae); na++ {
-		info.Printf("Increasing the number of ancillae to %d (%d total truth-table rows)", na, 1<<(tt.NCols+na))
-		prevLP := p.NumLPSolves
+		// Search for a solution using the current number of ancillae.
+		if p.Rank == 0 {
+			info.Printf("Increasing the number of ancillae to %d (%d total truth-table rows)", na, 1<<(tt.NCols+na))
+		}
 		sTime := time.Now()
 		var ett TruthTable   // Extended truth table
 		var gap float64      // Minimal gap between valid and invalid rows
@@ -471,12 +518,34 @@ func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []floa
 		default:
 			panic(fmt.Sprintf("unexpected reduction approach %d", p.Approach))
 		}
-		eTime := time.Since(sTime)
-		info.Printf("Performed %d LP solves in %d ms",
-			p.NumLPSolves-prevLP, eTime.Milliseconds())
+		_ = coeffs // Not currently needed
+
+		// Determine if any rank found a solution.
+		found := -1
 		if ok {
-			return ett, gap, vals, coeffs, ok // Success!
+			found = p.Rank
 		}
+		allFound := MPIAllreduceInts(MPIOpMax, []int{found})
+		ok = allFound[0] > -1
+
+		// Report the aggregate number of LP solves.
+		eTime := time.Since(sTime)
+		nSolves := MPIReduceInts(MPIOpSum, []int{int(p.NumLPSolves)})
+		if p.Rank == 0 {
+			info.Printf("Performed %d LP solves in %d ms",
+				uint64(nSolves[0])-prevLP, eTime.Milliseconds())
+			prevLP = uint64(nSolves[0])
+		}
+
+		// If any rank was successful, the maximum successful rank
+		// sends its truth table to rank 0.
+		if !ok {
+			continue // Not yet successful
+		}
+		ett = sendTT(p, ett, allFound[0], 0)
+		q := NewQUBO(ett.NCols)
+		gap, vals = q.trySolve(p, ett)
+		return ett, gap, vals, q.Coeffs, true
 	}
 	return TruthTable{}, 0.0, nil, nil, false // Failure
 }

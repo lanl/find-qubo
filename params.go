@@ -10,17 +10,19 @@ import (
 
 // Parameters is a collection of all program parameters.
 type Parameters struct {
-	TTName      string  // Name of the input truth-table file
-	MinQ        float64 // Minimum quadratic coefficient
-	MaxQ        float64 // Maximum quadratic coefficient
-	MinL        float64 // Minimum linear coefficient
-	MaxL        float64 // Maximum linear coefficient
-	RoundTo     float64 // Value to which to round all coefficients
-	MaxAncillae uint    // Maximum number of additional variables we're allowed to add
-	ProfName    string  // Name of a pprof performance-profile file
-	Tolerance   float64 // Smallest-in-magnitude values for the LP solver to consider nonzero
-	NumLPSolves uint64  // Tally of the number of LP solver invocations
-	Approach ReductionApproach // How to reduce the exponential search space
+	TTName      string            // Name of the input truth-table file
+	MinQ        float64           // Minimum quadratic coefficient
+	MaxQ        float64           // Maximum quadratic coefficient
+	MinL        float64           // Minimum linear coefficient
+	MaxL        float64           // Maximum linear coefficient
+	RoundTo     float64           // Value to which to round all coefficients
+	MaxAncillae uint              // Maximum number of additional variables we're allowed to add
+	ProfName    string            // Name of a pprof performance-profile file
+	Tolerance   float64           // Smallest-in-magnitude values for the LP solver to consider nonzero
+	NumLPSolves uint64            // Tally of the number of LP solver invocations
+	Approach    ReductionApproach // How to reduce the exponential search space
+	Rank        int               // The current process's rank in the parallel computation
+	NumRanks    int               // The total number of ranks in the parallel computation
 }
 
 // A ReductionApproach defines an approach to reduce the search space.
