@@ -45,11 +45,14 @@ func MPIBcastInt(n int) int {
 	return int(buf)
 }
 
-var MPIOpSum = C.MPI_SUM // Sum a list
-var MPIOpMax = C.MPI_MAX // Take the maximum of a list
+// An MPIOp represents an MPI reduction operation.
+type MPIOp C.MPI_Op
+
+var MPIOpSum = MPIOp(C.MPI_SUM) // Sum a list
+var MPIOpMax = MPIOp(C.MPI_MAX) // Take the maximum of a list
 
 // MPIReduceInts reduces one or more integers to rank 0 from all ranks.
-func MPIReduceInts(op C.MPI_Op, in []int) []int {
+func MPIReduceInts(op MPIOp, in []int) []int {
 	n := len(in)
 	sBuf := make([]C.long, n)
 	rBuf := make([]C.long, n)
@@ -65,7 +68,7 @@ func MPIReduceInts(op C.MPI_Op, in []int) []int {
 }
 
 // MPIAllreduceInts reduces one or more integers to all ranks from all ranks.
-func MPIAllreduceInts(op C.MPI_Op, in []int) []int {
+func MPIAllreduceInts(op MPIOp, in []int) []int {
 	n := len(in)
 	sBuf := make([]C.long, n)
 	rBuf := make([]C.long, n)
@@ -91,7 +94,7 @@ func MPISendInts(vs []int, to int) {
 }
 
 // MPIRecvInts receives one or more integers frmo another rank.
-func MPIRecvInts(vs []int, from int){
+func MPIRecvInts(vs []int, from int) {
 	n := len(vs)
 	rBuf := make([]C.long, n)
 	for i, v := range vs {

@@ -27,16 +27,19 @@ func MPIBcastInt(n int) int {
 	return n
 }
 
-var MPIOpSum = C.MPI_SUM // Sum a list
-var MPIOpMax = C.MPI_MAX // Take the maximum of a list
+// An MPIOp represents an MPI reduction operation.
+type MPIOp int
+
+var MPIOpSum = MPIOp(1) // Sum a list
+var MPIOpMax = MPIOp(2) // Take the maximum of a list
 
 // MPIReduceInts reduces one or more integers to rank 0 from all ranks.
-func MPIReduceInts(op C.MPI_Op, in []int) []int {
+func MPIReduceInts(op MPIOp, in []int) []int {
 	return in
 }
 
 // MPIAllreduceInts reduces one or more integers to all ranks from all ranks.
-func MPIAllreduceInts(op C.MPI_Op, in []int) []int {
+func MPIAllreduceInts(op MPIOp, in []int) []int {
 	return in
 }
 
