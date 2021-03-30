@@ -261,8 +261,10 @@ func (q *QUBO) trySolve(p *Parameters, tt TruthTable) (float64, []float64) {
 	return gap, vals
 }
 
-// allPossibleAncillae returns all length-N sequences of the numbers [0, k-1].
-func allPossibleAncillae(n, k int) chan []int {
+// allPossibleAncillae writes all length-N sequences of the numbers [0, k-1]
+// into a channel.  It then writes nDummy dummy values into the channel to
+// ensure that all MPI ranks are assigned equal work.
+func allPossibleAncillae(n, k, nDummy int) chan []int {
 	ch := make(chan []int, 16)
 	var tryNext func(work []int, idx int)
 	tryNext = func(work []int, idx int) {
@@ -284,6 +286,9 @@ func allPossibleAncillae(n, k int) chan []int {
 	}
 	go func() {
 		tryNext(make([]int, n), n-1)
+		for i := 0; i < nDummy; i++ {
+			ch <- nil
+		}
 		close(ch)
 	}()
 	return ch
@@ -322,7 +327,7 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 		rows[i], rows[j] = rows[j], rows[i]
 	})
 	naRows := 1 << na
-	ch := allPossibleAncillae(len(rows), naRows)
+	ch := allPossibleAncillae(len(rows), naRows, p.NumRanks)
 
 	// Try in turn each possible set of ancillary variables.
 	nCfg := 0
@@ -331,6 +336,16 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 		// Skip N-1 out of N sets based on our MPI rank.
 		idx++
 		if idx%p.NumRanks != p.Rank {
+			continue
+		}
+
+		// Ignore the dummy cases at the tail of the sequence.
+		if ancs == nil {
+			sc := []int{solved[Success], nCfg}
+			succCfg := MPIReduceInts(MPIOpSum, sc)
+			if p.Rank == 0 {
+				info.Printf("    Solved %d of %d configurations", succCfg[0], succCfg[1])
+			}
 			continue
 		}
 
