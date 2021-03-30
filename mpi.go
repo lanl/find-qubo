@@ -48,8 +48,11 @@ func MPIBcastInt(n int) int {
 // An MPIOp represents an MPI reduction operation.
 type MPIOp C.MPI_Op
 
-var MPIOpSum = MPIOp(C.MPI_SUM) // Sum a list
-var MPIOpMax = MPIOp(C.MPI_MAX) // Take the maximum of a list
+ // MPIOpSum indicates a reduction that produces a sum.
+var MPIOpSum = MPIOp(C.MPI_SUM)
+
+ // MPIOpMax indicates a reduction that returns the maximum value.
+var MPIOpMax = MPIOp(C.MPI_MAX)
 
 // MPIReduceInts reduces one or more integers to rank 0 from all ranks.
 func MPIReduceInts(op MPIOp, in []int) []int {
