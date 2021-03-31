@@ -262,10 +262,11 @@ func (q *QUBO) trySolve(p *Parameters, tt TruthTable) (float64, []float64) {
 }
 
 // allPossibleAncillae writes all length-N sequences of the numbers [0, k-1]
-// into a channel.  It then writes nDummy dummy values into the channel to
-// ensure that all MPI ranks are assigned equal work.
-func allPossibleAncillae(n, k, nDummy int) chan []int {
+// into a channel.  It then writes a number dummy values into the channel to
+// pad the number of values written to a multiple of the number of MPI ranks.
+func allPossibleAncillae(n, k, nr int) chan []int {
 	ch := make(chan []int, 16)
+	nSeq := 0 // Number of sequences written
 	var tryNext func(work []int, idx int)
 	tryNext = func(work []int, idx int) {
 		// When the work slice is fully populated, send the final
@@ -274,6 +275,7 @@ func allPossibleAncillae(n, k, nDummy int) chan []int {
 			final := make([]int, n)
 			copy(final, work)
 			ch <- final
+			nSeq++
 			return
 		}
 
@@ -286,7 +288,7 @@ func allPossibleAncillae(n, k, nDummy int) chan []int {
 	}
 	go func() {
 		tryNext(make([]int, n), n-1)
-		for i := 0; i < nDummy; i++ {
+		for ; nSeq%nr != 0; nSeq++ {
 			ch <- nil
 		}
 		close(ch)
@@ -332,6 +334,7 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 	// Try in turn each possible set of ancillary variables.
 	nCfg := 0
 	idx := -1
+	prevSolved := 0
 	for ancs := range ch {
 		// Skip N-1 out of N sets based on our MPI rank.
 		idx++
@@ -339,13 +342,10 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 			continue
 		}
 
-		// Ignore the dummy cases at the tail of the sequence.
+		// Ignore any dummy cases at the tail of the sequence.
 		if ancs == nil {
 			sc := []int{solved[Success], nCfg}
-			succCfg := MPIReduceInts(MPIOpSum, sc)
-			if p.Rank == 0 {
-				info.Printf("    Solved %d of %d configurations", succCfg[0], succCfg[1])
-			}
+			MPIAllreduceInts(MPIOpSum, sc)
 			continue
 		}
 
@@ -373,15 +373,18 @@ func bruteForceFindCoeffsWithAncillae(p *Parameters, tt TruthTable, na int) (Tru
 			}
 			copy(rv.coeffs, q.Coeffs)
 			solved[Success]++
-			if p.Approach == ReduceBruteForce {
-				break
-			} else {
-				sc := []int{solved[Success], nCfg}
-				succCfg := MPIReduceInts(MPIOpSum, sc)
-				if p.Rank == 0 {
-					info.Printf("    Solved %d of %d configurations", succCfg[0], succCfg[1])
-				}
-			}
+		}
+
+		// Acquire global agreement on the number of solutions found.
+		sc := []int{solved[Success], nCfg}
+		solvTot := MPIAllreduceInts(MPIOpSum, sc)
+		if p.Approach == ReduceBruteForce && solvTot[0] > 0 {
+			// We found the one solution we were looking for.
+			break
+		}
+		if p.Rank == 0 && solvTot[0] > prevSolved {
+			info.Printf("    Solved %d of %d configurations", solvTot[0], solvTot[1])
+			prevSolved = solvTot[0]
 		}
 	}
 
@@ -476,14 +479,15 @@ func sendTT(p *Parameters, tt TruthTable, from, to int) TruthTable {
 
 	// Convert the truth table from Booleans to integers and send it.
 	ttInts := make([]int, len(tt.TT))
-	if p.Rank == from {
+	switch p.Rank {
+	case from:
 		for i, b := range tt.TT {
 			if b {
 				ttInts[i] = 1
 			}
 		}
 		MPISendInts(ttInts, to)
-	} else {
+	case to:
 		MPIRecvInts(ttInts, from)
 		tt = tt.Copy()
 		for i, v := range ttInts {
@@ -556,6 +560,10 @@ func FindCoefficients(p *Parameters, tt TruthTable) (TruthTable, float64, []floa
 		// sends its truth table to rank 0.
 		if !ok {
 			continue // Not yet successful
+		}
+		if p.Rank == 0 && allFound[0] != 0 {
+			// Receive into a truth table with the correct number of rows.
+			ett = NewTruthTable(tt.NCols + na)
 		}
 		ett = sendTT(p, ett, allFound[0], 0)
 		q := NewQUBO(ett.NCols)
