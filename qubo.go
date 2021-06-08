@@ -252,7 +252,7 @@ func (q *QUBO) trySolve(p *Parameters, tt TruthTable) (float64, []float64) {
 	// Compute the row values and gap.
 	vals := q.EvaluateAllInputs()
 	gap := ComputeGap(vals, tt)
-	if gap <= 0.0 {
+	if gap < p.Tolerance {
 		// False alarm.  The LP solver thinks it solved the problem,
 		// but this was in fact a bogus solution likely caused by
 		// numerical imprecision.
