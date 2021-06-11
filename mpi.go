@@ -62,7 +62,7 @@ func MPIReduceInts(op MPIOp, in []int) []int {
 	for i, v := range in {
 		sBuf[i] = C.long(v)
 	}
-	C.MPI_Reduce(unsafe.Pointer(&sBuf[0]), unsafe.Pointer(&rBuf[0]), C.int(n), C.MPI_LONG, op, 0, C.MPI_COMM_WORLD)
+	C.MPI_Reduce(unsafe.Pointer(&sBuf[0]), unsafe.Pointer(&rBuf[0]), C.int(n), C.MPI_LONG, C.MPI_Op(op), 0, C.MPI_COMM_WORLD)
 	out := make([]int, n)
 	for i, v := range rBuf {
 		out[i] = int(v)
@@ -78,7 +78,7 @@ func MPIAllreduceInts(op MPIOp, in []int) []int {
 	for i, v := range in {
 		sBuf[i] = C.long(v)
 	}
-	C.MPI_Allreduce(unsafe.Pointer(&sBuf[0]), unsafe.Pointer(&rBuf[0]), C.int(n), C.MPI_LONG, op, C.MPI_COMM_WORLD)
+	C.MPI_Allreduce(unsafe.Pointer(&sBuf[0]), unsafe.Pointer(&rBuf[0]), C.int(n), C.MPI_LONG, C.MPI_Op(op), C.MPI_COMM_WORLD)
 	out := make([]int, n)
 	for i, v := range rBuf {
 		out[i] = int(v)
