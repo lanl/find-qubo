@@ -38,11 +38,11 @@ Multiple implementations of **find-qubo** are provided in this repository:
 | `find-qubo-pm`  | Python   | Faster than brute force | [Ocean](https://ocean.dwavesys.com/) |
 | `find-qubo-smt` | Python   | Very fast on modest-sized problems | [Z3](https://github.com/Z3Prover/z3) |
 
-(In the above, "pm" stands for [penalty model](https://docs.ocean.dwavesys.com/projects/penaltymodel/), and "smt" stands for [satisfiability modulo theories](https://en.wikipedia.org/wiki/Satisfiability_modulo_theories).)
+(In the above, `pm` stands for [penalty model](https://docs.ocean.dwavesys.com/projects/penaltymodel/), and `smt` stands for [satisfiability modulo theories](https://en.wikipedia.org/wiki/Satisfiability_modulo_theories).)
 
 All three implementations iterate over the number of ancillary variables, first trying zero, then one, then two, and so forth.  Each variable added makes the search for a solution exponentially slower.  The first implementation, `find-qubo`, is the most experimental.  It investigates a heuristic that often finds a solution extremely fast but may overlook a solution at a given number of ancillae and require more ancillae than necessary, becoming  very slow.  For comparison purposes, it also provides a brute-force mode, which can find either a single solution or a tally of all solutions (to gauge problem difficulty) and is extremely slow.  `find-qubo-smt` is the most recent implementation and can be very fast on problems that do not contain too many variables.
 
-**find-qubo** provides a `Makefile` for building `find-qubo`.  Remove `-tags mpi` from the `GOFLAGS` line to disable support for MPI-based parallelism.  `find-qubo-pm` and `find-qubo-smt` do not need to be compiled, but their dependencies must be met before they can run.  Use the [`pip`](https://docs.python.org/3/installing/index.html) command to install [`dwave-ocean-sdk`](https://pypi.org/project/dwave-ocean-sdk/) (`find-qubo-pm`) or [`z3-solver`](https://pypi.org/project/z3-solver/) (`find-qubo-smt`).
+**find-qubo** provides a `Makefile` for building `find-qubo`.  Remove `-tags mpi` from the `GOFLAGS` line to disable support for MPI-based parallelism.  `find-qubo-pm` and `find-qubo-smt` do not need to be compiled, but their dependencies must be met before they can run.  Use the [`pip`](https://docs.python.org/3/installing/index.html) command to install [`dwave-ocean-sdk`](https://pypi.org/project/dwave-ocean-sdk/) (for `find-qubo-pm`) or [`z3-solver`](https://pypi.org/project/z3-solver/) (for `find-qubo-smt`).
 
 Usage
 -----
