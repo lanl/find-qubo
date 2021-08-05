@@ -1,0 +1,90 @@
+#! /usr/bin/env python
+
+######################################
+# Produce a QUBO from a truth table  #
+# using D-Wave's penaltymodel module #
+#                                    #
+# By Scott Pakin <pakin@lanl.gov>    #
+######################################
+
+import penaltymodel.core as pm
+import dimod
+import networkx as nx
+import sys
+
+class TruthTable(object):
+    'Represent a truth table and various operations on it.'
+
+    def __init__(self, tbl=[]):
+        'Initialize a truth table, optionally from a given table representation.'
+        self.tbl = tbl
+        self.nrows = len(tbl)
+        if self.nrows == 0:
+            self.ncols = 0
+        else:
+            self.ncols = len(tbl[0])
+        self.tbl_vals = {}
+
+    def read_from_file(self, fd):
+        'Read a truth table from a file.'
+        self.tbl = []
+        self.tbl_vals = {}
+        for line in fd.readlines():
+            hash = line.find('#')
+            if hash != -1:
+                line = line[:hash]
+            tbl_line = []
+            fields = line.split()
+            if len(fields) == 0:
+                continue
+            val = 0
+            for f in fields:
+                val *= 2
+                if f.lower() in ['0', '-1', 'f', 'false']:
+                    tbl_line.append(0)
+                elif f.lower() in ['1', '+1', 't', 'true']:
+                    tbl_line.append(1)
+                    val += 1
+            self.tbl.append(tuple(tbl_line))
+            self.tbl_vals[val] = tbl_line
+        self.tbl = sorted(self.tbl)
+        self.nrows = len(self.tbl)
+        if self.nrows > 0:
+            self.ncols = len(self.tbl[0])
+
+    def to_bqm(self):
+        'Convert the truth table to a binary quadratic model.'
+        dec_vars = ['x%d' % i for i in range(self.ncols)]
+        for a in range(tt.nrows):
+            aux_vars = ['a%d' % j for j in range(a)]
+            clique = nx.complete_graph(dec_vars + aux_vars)
+            spec = pm.Specification(graph=clique,
+                                    decision_variables=dec_vars,
+                                    feasible_configurations=self.tbl,
+                                    min_classical_gap=1e-6,
+                                    vartype=dimod.BINARY)
+            try:
+                model = pm.get_penalty_model(spec)
+                return model.model
+            except pm.ImpossiblePenaltyModel:
+                sys.stderr.write('INFO: Considering %d ancilla(e)\n' % (a + 1))
+            
+###########################################################################
+
+# Read a truth table from standard input.
+tt = TruthTable()
+if len(sys.argv) > 1:
+    with open(sys.argv[1]) as r:
+        tt.read_from_file(r)
+else:
+    tt.read_from_file(sys.stdin)
+
+# Embed the table in the ground state of a QUBO, and output the QUBO.
+bqm = tt.to_bqm()
+vnames = ['x%d' % i for i in range(tt.ncols)]
+vnames.extend(['a%d' % i for i in range(len(bqm.linear) - tt.ncols)])
+for v in vnames:
+    print('%s = %13.6f' % (v, bqm.linear[v]))
+for i, u in enumerate(vnames[:-1]):
+    for v in vnames[i + 1:]:
+        print('%s %s = %10.6f' % (u, v, bqm.quadratic[(u, v)]))
