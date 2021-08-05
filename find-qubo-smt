@@ -1,0 +1,294 @@
+#! /usr/bin/env python
+
+#####################################
+# Embed a truth table in the ground #
+# state of a Hamiltonian function   #
+#                                   #
+# By Scott Pakin <pakin@lanl.gov>   #
+#####################################
+
+import argparse
+import sys
+import z3
+
+class TruthTable(object):
+    'Represent a truth table and various operations on it.'
+
+    def __init__(self):
+        'Initialize a truth table.'
+        self.tbl = set()
+        self.ncols = 0
+
+    def read_from_file(self, fd):
+        'Read a truth table from a file.'
+        tbl = []
+        for line in fd.readlines():
+            # Read a line and split it into fields.
+            hash = line.find('#')
+            if hash != -1:
+                line = line[:hash]
+            tbl_line = []
+            fields = line.split()
+            nc = len(fields)
+            if nc == 0:
+                continue
+
+            # Accept "!" and a number as an energy level.
+            energy = 0
+            if len(fields[-1]) >= 2 and fields[-1][0] == '!':
+                energy = int(fields[-1][1:])
+                if energy < 0:
+                    raise RuntimeError('energy levels must be non-negative')
+                fields = fields[:-1]
+                nc -= 1
+
+            # Ensure that all rows contain the same number of columns.
+            if self.ncols == 0:
+                self.ncols = nc
+            elif self.ncols != nc:
+                raise RuntimeError('inconsistent number of columns in the truth table')
+
+            # Convert the line to a tuple of 0s and 1s.
+            for f in fields:
+                if f.lower() in ['0', '-1', 'f', 'false']:
+                    tbl_line.append(0)
+                elif f.lower() in ['1', '+1', 't', 'true']:
+                    tbl_line.append(1)
+                else:
+                    raise RuntimeError('failed to parse "%s" as a Boolean value' % f)
+            tbl.append((tuple(tbl_line), energy))
+
+        # Compact the energy levels to consecutive whole numbers.
+        self.tbl = {r: e for r, e in tbl}
+        emap = {o: n for n, o in enumerate(sorted(set(self.tbl.values())))}
+        self.tbl = {r: emap[e] for r, e in self.tbl.items()}
+
+    def output(self, indent=0):
+        'Output the truth table to standard output.'
+        for row in self.tbl:
+            print(' '*indent, end='')
+            print(' '.join([str(e) for e in row]))
+
+    def _all_rows(self, n):
+        'Return all rows of n bits.'
+        if n == 0:
+            yield []
+        else:
+            for tl in self._all_rows(n - 1):
+                for b in [0, 1]:
+                    yield [b] + tl
+
+    def _qubo_to_ising(self, qubo):
+        'Convert a QUBO solution to an Ising-model solution.'
+        icoeffs = {ij: 0 for _, _, ij in qubo}
+        tnc = 0
+        for _, val, ij in qubo:
+            i, j = ij
+            tnc = max([tnc, i, j])
+            if i == j:
+                # Linear term
+                icoeffs[ij] += 2*val
+            else:
+                # Quadratic term
+                icoeffs[ij] += val
+                icoeffs[(i, i)] += val
+                icoeffs[(j, j)] += val
+        tnc += 1
+        ising = []
+        for i in range(tnc):
+            nm = 'h_%d' % i
+            val = icoeffs[(i, i)]
+            ising.append((nm, val, (i, i)))
+        for i in range(tnc - 1):
+            for j in range(i + 1, tnc):
+                nm = 'J_%d_%d' % (i, j)
+                val = icoeffs[(i, j)]
+                ising.append((nm, val, (i, j)))
+        return ising
+
+    def _solve_ancillae(self, na):
+        'Solve for the coefficients given a number of ancillae.'
+        # Define shortcuts for oft-needed constants.
+        tt = self.tbl
+        nc = self.ncols
+        tnc = nc + na      # Total number of columns
+
+        # Create a solver.
+        s = z3.Solver()
+
+        # Declare a Z3 variable for each coefficient.
+        cf = []
+        for i in range(tnc):
+            cf.append(z3.Int('a_%d' % i))
+        for i in range(tnc - 1):
+            for j in range(i + 1, tnc):
+                cf.append(z3.Int('b_%d_%d' % (i, j)))
+
+        # Declare one Z3 variable per energy level as a constant for the
+        # corresponding rows to equal.
+        max_energy = max(tt.values())
+        const = [z3.Int('k%d' % k) for k in range(0, max_energy + 1)]
+        for i in range(len(const) - 1):
+            s.add(const[i] < const[i + 1])
+
+        # Consider in turn each row of a complete truth table.
+        for row in self._all_rows(nc):
+            # Construct all combinations of ancillae for this row.
+            exprs = []
+            for anc in self._all_rows(na):
+                ext_row = row + anc
+                e = 0
+                for i in range(tnc):
+                    e += cf[i]*ext_row[i]
+                idx = tnc
+                for i in range(tnc - 1):
+                    for j in range(i + 1, tnc):
+                        e += cf[idx]*ext_row[i]*ext_row[j]
+                        idx += 1
+                exprs.append(z3.simplify(e))
+
+            # Add constraints to the model based on the current set of
+            # expressions.
+            tr = tuple(row)
+            if tr in tt:
+                # Valid row: exactly one ancilla combination results in a
+                # ground state or specified excited state; the rest result in
+                # an excited state.
+                s.add(z3.PbEq([(e == const[tt[tr]], 1) for e in exprs], 1))
+                s.add(z3.PbEq([(e > const[-1], 1) for e in exprs], len(exprs) - 1))
+            else:
+                # Invalid row: all ancilla combinations result in an excited
+                # state.
+                for e in exprs:
+                    s.add(e > const[-1])
+
+        # Solve the model.
+        if s.check() != z3.sat:
+            return None
+        model = s.model()
+
+        # Return the name of each coefficient and its value.
+        soln = []
+        for i in range(tnc):
+            nm = str(cf[i])
+            val = model[cf[i]].as_long()
+            soln.append((nm, val, (i, i)))
+        idx = tnc
+        for i in range(tnc - 1):
+            for j in range(i + 1, tnc):
+                nm = str(cf[idx])
+                val = model[cf[idx]].as_long()
+                soln.append((nm, val, (i, j)))
+                idx += 1
+        return soln
+
+    def solve(self, verbose=True):
+        '''Try increasing numbers of ancillae until the truth table can be
+        expressed in terms of linear and quadratic coefficients.'''
+        for na in range(0, self.ncols):
+            soln = self._solve_ancillae(na)
+            if soln != None:
+                return soln, self._qubo_to_ising(soln), na
+            if verbose:
+                sys.stderr.write('INFO: Increasing the number of ancillae to %d (%d total truth-table rows)\n' %
+                                 (na + 1, 2**(self.ncols + na + 1)))
+        return None, None, na
+
+def compute_all_energies(tnc, soln, vals=[0, 1]):
+    'Return an energy value for each row of a truth table.'
+    energies = []
+    for n in range(2**tnc):
+        bits = [vals[(n>>(tnc - i - 1))&1] for i in range(tnc)]  # Bits or spins
+        e = 0
+        for _, v, ij in soln:
+            i, j = ij
+            if i == j:
+                # Linear
+                e += v*bits[i]
+            else:
+                # Quadratic
+                e += v*bits[i]*bits[j]
+        energies.append(e)
+    return energies
+
+def output_complete_truth_table(nc, na, qsoln):
+    '''Output a complete truth table with each row annotated with its energy
+    value and rank.'''
+    # Compute the energy of each row of the truth table.
+    tnc = nc + na
+    energies = compute_all_energies(tnc, qsoln, [0, 1])
+
+    # Rank each energy.
+    sorted_energies = sorted(set(energies))
+    energy2rank = {e: r for r, e in enumerate(sorted_energies)}
+
+    # Output the annotated truth table.
+    print('Complete truth table (QUBO):')
+    for n in range(2**tnc):
+        bits = [(n>>(tnc - i - 1))&1 for i in range(tnc)]
+        energy = energies[n]
+        rank = energy2rank[energy]
+        print('    %s' % ' '.join([str(b) for b in bits[:nc]]), end='')
+        if na > 0:
+            print('  %s' % ' '.join([str(b) for b in bits[nc:]]), end='')
+        print('  !%-4d %5d' % (rank, energy))
+
+###########################################################################
+
+# Parse the command line.
+parser = argparse.ArgumentParser(description='Embed a truth table in the ground state of an Ising-model Hamiltonian/QUBO.')
+parser.add_argument('truth_table', metavar='FILE', nargs='?',
+                    type=open, default=sys.stdin,
+                    help='Name of a file containing a truth table')
+parser.add_argument('--quiet', action='store_true',
+                    help='Produce no output, only an exit code')
+cl_args = parser.parse_args()
+
+# Read a table from the named file.
+tt = TruthTable()
+tt.read_from_file(cl_args.truth_table)
+
+# Attempt to solve for the values of our linear and quadratic coefficients.
+qsoln, isoln, na = tt.solve(not cl_args.quiet)
+if cl_args.quiet:
+    sys.exit(int(qsoln == None))
+if qsoln == None:
+    sys.exit('failed to find a solution')
+
+# Report the number of columns.
+print('Column count: %d regular + %d ancilla = %d total' % (tt.ncols, na, tt.ncols + na))
+
+# Report the coefficients in Ising format.
+print('Coefficients (Ising): %s' % repr([val for _, val, _ in isoln]))
+for nm, val, idxs in isoln:
+    print('    %-7s %5d' % (nm, val))
+
+# Pretty-print each QUBO coefficient's value.
+print('Coefficients (QUBO): %s' % repr([val for _, val, _ in qsoln]))
+for nm, val, idxs in qsoln:
+    print('    %-7s %5d' % (nm, val))
+
+# Output the coefficients as a QUBO matrix readable by MATLAB or GNU Octave.
+tnc = tt.ncols + na
+qubo = [[0 for i in range(tnc)] for j in range(tnc)]
+for nm, val, (j, i) in qsoln:
+    qubo[j][i] = val
+qstr = []
+for row in qubo:
+    qstr.append(' '.join(['%.20g' % v for v in row]))
+qstr = ' ; '.join(qstr)
+print('QUBO matrix (MATLAB) = [%s]' % qstr)
+print('QUBO matrix (Python) = %s' % repr(qubo))
+
+# Output the complete truth table.
+output_complete_truth_table(tt.ncols, na, qsoln)
+
+# Output the energy gap after normalizing the coefficients.
+imax = max([abs(v) for _, v, _ in isoln])
+if imax == 0:
+    # Special case for a complete truth table
+    sorted_ienergies = [0, 0]
+else:
+    ienergies = compute_all_energies(tnc, [(nm, v/imax, ij) for nm, v, ij in isoln], [0, 1])
+    sorted_ienergies = sorted(set([round(v, 10) for v in ienergies]))
+print('Gap (Ising, normalized coefficients): %.10g' % (sorted_ienergies[1] - sorted_ienergies[0]))
