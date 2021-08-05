@@ -6,7 +6,7 @@ Description
 
 The goal of a [*quadratic unconstrained binary optimization*](https://en.wikipedia.org/wiki/Quadratic_unconstrained_binary_optimization) (QUBO) problem is to find the values of the <i>x<sub>i</sub></i> ∈ [0, 1] that minimize the quadratic pseudo-Boolean expression
 
-![qubo](https://bit.ly/3xw4JwZ)
+![qubo](https://bit.ly/3rULTP0)
 
 where <i>a<sub>i</sub></i> ∈ ℝ, and <i>b<sub>i,j</sub></i> ∈ ℝ are given.  There is always one minimum, but there can be more.  For example, <i>f</i>(<b><i>x</i></b>) = 3<i>x</i><sub>3</sub> + <i>x</i><sub>1</sub><i>x</i><sub>2</sub> − 2<i>x</i><sub>1</sub><i>x</i><sub>3</sub> − 2<i>x</i><sub>2</sub><i>x</i><sub>3</sub> is minimized at {<i>x</i><sub>1</sub>, <i>x</i><sub>2</sub>, <i>x</i><sub>3</sub>} = {0, 0, 0}, {0, 1, 0}, {1, 0, 0}, and {1, 1, 1}:
 
