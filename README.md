@@ -49,6 +49,13 @@ Usage
 
 All three implementations require the name of a file containing a truth table.  (See [the `testcases` directory](testcases/) for examples.)  `find-qubo` accepts a large number of options, and `find-qubo-smt` accepts a few.  Run with `--help` for information.
 
+Citation
+--------
+
+The following peer-reviewed publication introduces **find-qubo**:
+
+> Scott Pakin, "A Simple Heuristic for Expressing a Truth Table as a Quadratic Pseudo-Boolean Function".  Proceedings of the 2021 IEEE International Conference on Quantum Computing and Engineering (QCE), Broomfield, Colorado, USA, 17–22 October 2021, pp. 218–224.  ISBN: 978-1-6654-1691-7, DOI: [10.1109/QCE52317.2021.00039](https://doi.org/10.1109/QCE52317.2021.00039).
+
 Legal statement
 ---------------
 
